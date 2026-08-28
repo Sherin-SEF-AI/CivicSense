@@ -18,7 +18,12 @@ export default defineConfig({
   use: { baseURL: 'http://localhost:3117', trace: 'retain-on-failure' },
   projects: [{ name: 'chrome', use: { ...devices['Desktop Chrome'], channel: 'chrome' } }],
   webServer: {
-    command: 'rm -rf .e2e-fis && npm run bootstrap && next dev -p 3117',
+    /* The evidence directory is bind mounted into the forensic tier, so it is
+       emptied rather than removed. Deleting it would replace the inode the
+       mount points at, and every forensic spec would then quietly exercise the
+       degraded path while appearing to test the attached one. */
+    command:
+      'mkdir -p .e2e-fis/evidence && rm -f .e2e-fis/civicsense.db* && find .e2e-fis/evidence -mindepth 1 -delete && npm run bootstrap && next dev -p 3117',
     url: 'http://localhost:3117/api/v1/system/health',
     reuseExistingServer: false,
     timeout: 180_000,

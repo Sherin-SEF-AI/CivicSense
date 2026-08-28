@@ -112,3 +112,50 @@ export async function fisHealth(): Promise<
     return { available: false, reason: error instanceof FisUnavailable ? error.reason : String(error) }
   }
 }
+
+export interface FisAuthenticityTest {
+  test: string
+  result: 'pass' | 'fail' | 'inconclusive'
+  detail: string
+  standard: string | null
+  mandatory: boolean
+  measurements: Record<string, unknown>
+}
+
+export interface FisAuthenticity {
+  sha256: string
+  verdict: 'verified' | 'consistent' | 'flagged' | 'inconsistent'
+  tests: FisAuthenticityTest[]
+}
+
+/**
+ * The full battery over one object, when the tier is attached.
+ *
+ * Returns null rather than throwing when it is not, because a console without
+ * the forensic tier still has to produce a bundle. What it must not do is
+ * silently present the smaller set of local checks as though the full battery
+ * had run, so the caller marks the difference.
+ */
+export async function fisAuthenticity(input: {
+  sha256: string
+  width: number | null
+  height: number | null
+  claimedCaptureMs: number | null
+  signatureVerdict: string
+}): Promise<FisAuthenticity | null> {
+  if (!fisConfigured()) return null
+  try {
+    return await fis<FisAuthenticity>('/v1/authenticity', {
+      method: 'POST',
+      body: {
+        sha256: input.sha256,
+        width: input.width,
+        height: input.height,
+        claimed_capture_ms: input.claimedCaptureMs,
+        signature_verdict: input.signatureVerdict,
+      },
+    })
+  } catch {
+    return null
+  }
+}

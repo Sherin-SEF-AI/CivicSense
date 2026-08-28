@@ -8,6 +8,7 @@ import { verifyCustodyChain } from '@/lib/db'
 import { verifyEvidence } from '@/lib/ingest/media'
 import type { SignatureVerdict } from '@/lib/vault/signing'
 import type { AuthenticityReport } from '@/lib/api/schemas'
+import { fisAuthenticity, fisConfigured } from '@/lib/fis/client'
 import { hypothesesForIncident } from './hypotheses'
 
 /**
@@ -227,6 +228,22 @@ export async function buildForensics(
           'SELECT root, leaf_count FROM evidence_merkle WHERE sha256 = ?',
           [node.evidence_id],
         )
+        const media = get<{ width: number | null; height: number | null; captured_at: number | null }>(
+          'SELECT width, height, captured_at FROM evidence WHERE sha256 = ?',
+          [node.evidence_id],
+        )
+
+        /* The picture tests live in the forensic tier because they decode video
+           and measure it. When the tier is not attached the console still
+           produces a bundle, and it says which battery ran rather than
+           presenting the smaller set as though it were the full one. */
+        const battery = await fisAuthenticity({
+          sha256: node.evidence_id,
+          width: media?.width ?? null,
+          height: media?.height ?? null,
+          claimedCaptureMs: media?.captured_at ?? null,
+          signatureVerdict: signature.verdict,
+        })
 
         const tests: AuthenticityReport['tests'] = [
           {
@@ -261,6 +278,29 @@ export async function buildForensics(
             test: 'chunk tree',
             result: 'pass',
             detail: `${merkle.leaf_count} chunk(s) under root ${merkle.root.slice(0, 16)}, so a single segment can be proved a member without the rest`,
+            standard: null,
+          })
+        }
+
+        if (battery) {
+          /* The tier already recomputed the digest itself, so its content hash
+             row is dropped rather than shown twice. */
+          for (const extra of battery.tests) {
+            if (extra.test === 'content hash') continue
+            tests.push({
+              test: extra.test,
+              result: extra.result,
+              detail: extra.detail,
+              standard: extra.standard,
+            })
+          }
+        } else {
+          tests.push({
+            test: 'picture battery',
+            result: 'inconclusive',
+            detail: fisConfigured()
+              ? 'the forensic tier did not answer, so continuity, recompression and recapture were not examined'
+              : 'the forensic tier is not attached to this console, so continuity, recompression and recapture were not examined. what is shown here is integrity and custody only.',
             standard: null,
           })
         }

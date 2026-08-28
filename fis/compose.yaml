@@ -103,12 +103,19 @@ services:
       FIS_MINIO_PASSWORD: ${FIS_MINIO_PASSWORD:-fis-local-only}
       FIS_SERVICE_SECRET: ${FIS_SERVICE_SECRET:-fis-local-only-secret}
       FIS_ENV: ${FIS_ENV:-dev}
+      # Every store the tier may read, named explicitly. A caller asks for an
+      # object by hash and the tier looks for it here; it cannot be pointed at
+      # a path of the caller's choosing.
+      FIS_VAULT_ROOTS: /vault/legacy:/vault/acceptance
     ports:
       - "${FIS_API_PORT:-8099}:8000"
     volumes:
       # The console's evidence store, read only. FIS reads the original bytes
       # and never writes to or deletes from it.
       - ../data/evidence:/vault/legacy:ro
+      # The acceptance suite keeps its own store, so the tier has to see that
+      # one too or every forensic spec would silently exercise the degraded path.
+      - ../.e2e-fis/evidence:/vault/acceptance:ro
     command:
       - sh
       - -c

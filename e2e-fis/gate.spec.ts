@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { tinyPng } from '../e2e/helpers'
 
 /**
  * The forensic tier, when it is attached.
@@ -86,5 +87,62 @@ test.describe('metrology workbench', () => {
       admin.audit.some((row) => row.action === 'measurement.taken' && row.subject === `incident:${incidentId}`),
       'taking a measurement must be on the record',
     ).toBe(true)
+  })
+})
+
+test.describe('authenticity', () => {
+  test('the full battery runs and refuses to decide where it cannot', async ({ request }) => {
+    const id = `E2E-FIS-AUTH-${Date.now()}`
+    await request.post('/api/v1/sources', {
+      data: { source_id: id, source_type: 'cctv-fixed', label: 'authenticity', lat: 12.99, lon: 77.68, sync_quality: 'B' },
+    })
+
+    /* A real PNG through the real ingest path, so the battery sees the bytes a
+       device would have delivered. */
+    const png = tinyPng(Date.now())
+    const ingested = await request.post('/api/v1/ingest/observation', {
+      multipart: {
+        payload: JSON.stringify({
+          source_id: id,
+          t_start: Date.now(),
+          payload_kind: 'keyframe',
+          classes: ['car'],
+          trigger: 'class:no_helmet',
+          situation_key: 'no-helmet',
+          lat: 12.99,
+          lon: 77.68,
+        }),
+        media: { name: 'frame.png', mimeType: 'image/png', buffer: png },
+      },
+    })
+    const { incident_id: incidentId, evidence } = (await ingested.json()) as {
+      incident_id: string
+      evidence: { sha256: string }
+    }
+
+    const bundle = (await (await request.get(`/api/v1/forensics/${incidentId}`)).json()) as {
+      authenticity: { evidence_id: string; verdict: string; tests: { test: string; result: string; detail: string }[] }[]
+    }
+    const report = bundle.authenticity.find((a) => a.evidence_id === evidence.sha256)!
+
+    const named = new Map(report.tests.map((t) => [t.test, t]))
+    /* The console's own checks. */
+    expect(named.get('content hash')!.result).toBe('pass')
+    expect(named.get('custody chain')!.result).toBe('pass')
+    /* And the tier's, which is the point of attaching it. */
+    expect(named.has('container continuity'), 'the picture battery must have run').toBe(true)
+    expect(named.has('screen replay')).toBe(true)
+    expect(named.has('blocking grid')).toBe(true)
+
+    /* A single frame cannot support any of the temporal tests, and every one of
+       them must say so rather than return a result it cannot justify. */
+    for (const name of ['container continuity', 'content continuity', 'screen replay']) {
+      expect(named.get(name)!.result, `${name} on a still image`).toBe('inconclusive')
+      expect(named.get(name)!.detail).toMatch(/too few frames|too short/)
+    }
+
+    /* Nothing failed, so the object is consistent. It is not verified, because
+       nothing signed it. */
+    expect(report.verdict).toBe('consistent')
   })
 })
