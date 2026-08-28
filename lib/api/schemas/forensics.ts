@@ -76,6 +76,8 @@ export const TrackKinematicsSchema = z.object({
   braking_onset_t: z.number().nullable(),
   /** Widened uncertainty demotes a measurement to an indication. */
   measurement_grade: z.enum(['measured', 'indicative']),
+  /** Which method produced these figures. A reader should not have to guess. */
+  estimator: z.enum(['kalman-rts', 'finite-difference']).default('finite-difference'),
   validated_against_can: z.boolean(),
 })
 export type TrackKinematics = z.infer<typeof TrackKinematicsSchema>

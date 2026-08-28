@@ -207,7 +207,7 @@ export async function buildForensics(
     /* Measured from ground-plane tracks a calibrated device reported. A source
        that never reports tracks contributes nothing here, and an empty table is
        the honest answer rather than an estimate from pixels. */
-    kinematics: kinematicsForIncident(incidentId),
+    kinematics: await kinematicsForIncident(incidentId),
     conflicts: conflictsForIncident(incidentId),
     causal: pkg?.causal ?? { nodes: [], edges: [], root_causes: [] },
     hypotheses: hypothesesForIncident(incidentId),

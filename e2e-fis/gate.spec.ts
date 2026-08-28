@@ -146,3 +146,67 @@ test.describe('authenticity', () => {
     expect(report.verdict).toBe('consistent')
   })
 })
+
+test.describe('kinematics', () => {
+  test('the filter replaces differencing and says which produced the figure', async ({ request }) => {
+    const t = Date.now()
+    const id = `E2E-FIS-KIN-${t}`
+    await request.post('/api/v1/sources', {
+      data: { source_id: id, source_type: 'cctv-fixed', label: 'kinematics', lat: 12.94, lon: 77.66, sync_quality: 'A' },
+    })
+    /* Calibrated through the real procedure, so ground positions are admissible. */
+    await request.put(`/api/v1/sources/${id}/calibration`, {
+      data: { homography: { matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1] }, residual_m: 0.2 },
+    })
+
+    const observation = await request.post('/api/v1/ingest/observation', {
+      data: {
+        source_id: id,
+        t_start: t,
+        payload_kind: 'keyframe',
+        classes: ['car'],
+        trigger: 'class:sudden_stop+fallen_rider',
+        situation_key: 'collision',
+        lat: 12.94,
+        lon: 77.66,
+      },
+    })
+    const { observation_id: observationId, incident_id: incidentId } = (await observation.json()) as {
+      observation_id: string
+      incident_id: string
+    }
+
+    /* Twelve samples at 10 Hz along a straight path at about 45 km/h. */
+    const samples = Array.from({ length: 12 }, (_, i) => ({
+      t: t + i * 100,
+      lat: 12.94 + i * 0.0000112,
+      lon: 77.66 + i * 0.0000112,
+    }))
+    const posted = await request.post('/api/v1/ingest/track', {
+      data: { observation_id: observationId, tracks: [{ track_id: `${id}-T1`, descriptor: 'car', samples }] },
+    })
+    expect(posted.ok(), await posted.text()).toBe(true)
+
+    const bundle = (await (await request.get(`/api/v1/forensics/${incidentId}`)).json()) as {
+      kinematics: {
+        track_id: string
+        estimator: string
+        peak_speed: { value: number; lo: number; hi: number }
+        measurement_grade: string
+      }[]
+    }
+
+    expect(bundle.kinematics.length).toBe(1)
+    const track = bundle.kinematics[0]!
+
+    /* The whole point of attaching the tier. */
+    expect(track.estimator, 'the filter must have produced this').toBe('kalman-rts')
+    expect(track.measurement_grade).toBe('measured')
+
+    /* The interval must bracket the value and be narrow enough to say something.
+       Differencing on the same track gives an interval hundreds wide. */
+    expect(track.peak_speed.lo).toBeLessThanOrEqual(track.peak_speed.value)
+    expect(track.peak_speed.hi).toBeGreaterThanOrEqual(track.peak_speed.value)
+    expect(track.peak_speed.hi - track.peak_speed.lo).toBeLessThan(40)
+  })
+})

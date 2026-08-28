@@ -159,3 +159,44 @@ export async function fisAuthenticity(input: {
     return null
   }
 }
+
+export interface FisKinematicsItem {
+  track_id: string
+  entity_ref: string | null
+  descriptor?: string
+  estimator?: string
+  refused?: string
+  grade?: string
+  peak_speed_kmh?: number
+  peak_speed_interval_95?: [number, number]
+  braking_onset_ms?: number | null
+  series?: { t: number; speed: number; speed_lo: number; speed_hi: number; accel: number }[]
+}
+
+/**
+ * Speed and acceleration from ground-plane tracks, filtered rather than differenced.
+ *
+ * Returns null when the tier is not attached, so the caller can fall back and
+ * say which method it used. The two are not interchangeable: dividing the gap
+ * between consecutive positions by the interval between them amplifies position
+ * noise instead of averaging it down, and on a typical site it is wrong by three
+ * orders of magnitude more than the filter.
+ */
+export async function fisKinematics(
+  tracks: {
+    track_id: string
+    entity_ref: string | null
+    descriptor: string
+    residual_m: number
+    sync_sigma_ms: number
+    samples: { t_ms: number; lat: number; lon: number }[]
+  }[],
+): Promise<FisKinematicsItem[] | null> {
+  if (!fisConfigured() || tracks.length === 0) return null
+  try {
+    const body = await fis<{ items: FisKinematicsItem[] }>('/v1/kinematics', { method: 'POST', body: { tracks } })
+    return body.items
+  } catch {
+    return null
+  }
+}
