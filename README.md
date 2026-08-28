@@ -130,6 +130,14 @@ The interface is a calibrated instrument, closer to an avionics console than to 
 - **Terse voice.** Labels read like instrument markings. Empty states state a fact and the one action
   that changes it.
 
+### Dev surfaces
+
+`/dev/glyphs` shows every glyph at three optical sizes. `/dev/components` shows
+every primitive in every state that matters, including the ones that are hard to
+reach in the product: an SLA inside its last five per cent, an inconsistent
+authenticity verdict, a citation that does not resolve. Both return 404 in a live
+build.
+
 ### CS Glyphs
 
 Seventy-two custom glyphs on a 16 by 16 grid, 1.5px stroke, square caps and joins, angles restricted

@@ -71,9 +71,11 @@ export class VideoSlave {
     if (coverage.index !== this.currentIndex) {
       this.currentIndex = coverage.index
       this.callbacks.onSegmentChange(coverage.index)
-      const url = coverage.segment.uri
-      if (!video.src.endsWith(url)) {
-        video.src = url
+      /* hls.js owns the media source for HLS segments; assigning src would
+         detach it and leave the tile blank. */
+      if (coverage.segment.kind === 'mp4') {
+        const url = coverage.segment.uri
+        if (!video.src.endsWith(url)) video.src = url
       }
       this.hardSeek(coverage.localSec)
       return
@@ -168,7 +170,7 @@ export class VideoSlave {
     if (coverage.state !== 'covered') return
     if (coverage.index !== this.currentIndex) {
       this.currentIndex = coverage.index
-      this.video.src = coverage.segment.uri
+      if (coverage.segment.kind === 'mp4') this.video.src = coverage.segment.uri
       this.callbacks.onSegmentChange(coverage.index)
     }
     this.hardSeek(coverage.localSec)

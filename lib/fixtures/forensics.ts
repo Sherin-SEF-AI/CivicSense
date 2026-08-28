@@ -89,6 +89,12 @@ export function buildForensics(
         })
         cursor += duration + intRange(rnd, 6_000, 34_000)
       }
+      /* One bodycam per incident streams live over HLS during the response, so
+         the streaming path is exercised rather than only described. */
+      if (s.source_type === 'bodycam' && segments.length > 0) {
+        const last = segments[segments.length - 1]!
+        segments[segments.length - 1] = { ...last, uri: '/media/hls/live.m3u8', kind: 'hls' }
+      }
       if (segments.length === 0) {
         segments.push({
           t_start: incident.detected_at - 20_000,

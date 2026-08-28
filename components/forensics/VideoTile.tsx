@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Hls from 'hls.js'
 import type { PlaybackSource } from '@/lib/api/schemas'
 import type { MasterClock } from '@/lib/playback/clock'
 import { coverageAt } from '@/lib/playback/coverage'
@@ -41,6 +42,24 @@ export function VideoTile({
   const markDesynced = useTransport((s) => s.markDesynced)
   const measuring = useTransport((s) => s.measuring)
   const [measurePoints, setMeasurePoints] = useState<{ x: number; y: number }[]>([])
+
+  /* Live segments arrive as HLS. Safari plays it natively; everywhere else needs
+     hls.js, and attaching it is the one thing that has to happen before the
+     slave starts writing currentTime. */
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    const needsHls = source.segments.some((seg) => seg.kind === 'hls')
+    if (!needsHls) return
+    if (video.canPlayType('application/vnd.apple.mpegurl')) return
+    if (!Hls.isSupported()) return
+
+    const hls = new Hls({ enableWorker: true, lowLatencyMode: false })
+    hls.attachMedia(video)
+    const first = source.segments.find((seg) => seg.kind === 'hls')
+    if (first) hls.loadSource(first.uri)
+    return () => hls.destroy()
+  }, [source])
 
   useEffect(() => {
     const video = videoRef.current
