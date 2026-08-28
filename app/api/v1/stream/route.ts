@@ -1,33 +1,27 @@
 import type { NextRequest } from 'next/server'
 import { STREAM_TOPICS, type StreamTopic } from '@/lib/api/schemas'
-import { IS_FIXTURES } from '@/lib/env'
+import { bus } from '@/lib/events/bus'
+import { countsByBand } from '@/lib/store/incidents'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 /**
- * The single SSE connection everything multiplexes over.
+ * The single live connection.
  *
- * Named events plus a redundant type field in the payload: the name lets a
- * consumer attach a targeted listener, the type keeps the payload a
- * self-describing discriminated union for the router. Last-Event-ID replay is
- * served from the hub's ring buffer so a short network drop does not lose an
- * acknowledgement and leave the console showing stale state.
+ * Everything the console needs to stay current arrives here, and only when a row
+ * actually changed. Named events plus a redundant type field in the payload: the
+ * name lets a consumer attach a targeted listener, the type keeps the payload a
+ * self-describing discriminated union for the router.
  */
 export async function GET(req: NextRequest) {
-  if (!IS_FIXTURES) return new Response('not found', { status: 404 })
-
-  const { getHub } = await import('@/lib/fixtures/hub')
-  const { startTicker, scheduleStop } = await import('@/lib/fixtures/ticker')
-  const { getWorld, countsByBand } = await import('@/lib/fixtures/world')
-
   const requested = req.nextUrl.searchParams.get('topics')
   const topics: StreamTopic[] = requested
-    ? (requested.split(',').filter((t): t is StreamTopic => (STREAM_TOPICS as readonly string[]).includes(t)))
+    ? requested.split(',').filter((t): t is StreamTopic => (STREAM_TOPICS as readonly string[]).includes(t))
     : [...STREAM_TOPICS]
 
-  const hub = getHub()
   const encoder = new TextEncoder()
+  const b = bus()
   let clientId = -1
 
   const stream = new ReadableStream<Uint8Array>({
@@ -43,26 +37,25 @@ export async function GET(req: NextRequest) {
         try {
           controller.close()
         } catch {
-          /* already closed by the runtime */
+          /* the runtime may have closed it already */
         }
       }
 
-      clientId = hub.attach(topics, req.headers.get('last-event-id'), send, close)
-      startTicker()
+      clientId = b.attach(topics, req.headers.get('last-event-id'), send, close)
 
-      /* Seed the connection so a fresh client is not blank until the first tick. */
-      const w = getWorld()
-      hub.publish({ type: 'counts', ts: Date.now(), payload: countsByBand(w) })
+      /* Seed the connection with the current counts so a fresh client is not
+         blank until something happens. */
+      send(
+        `id: 0\nevent: counts\ndata: ${JSON.stringify({ type: 'counts', ts: Date.now(), payload: countsByBand() })}\n\n`,
+      )
 
       req.signal.addEventListener('abort', () => {
-        hub.detach(clientId)
-        scheduleStop()
+        b.detach(clientId)
         close()
       })
     },
     cancel() {
-      hub.detach(clientId)
-      scheduleStop()
+      b.detach(clientId)
     },
   })
 

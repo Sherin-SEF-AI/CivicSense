@@ -1,10 +1,34 @@
 import { expect, test } from '@playwright/test'
-import { collectConsoleErrors, firstIncidentId } from './helpers'
+import { collectConsoleErrors, hasFfmpeg, ingestClip, registerSource, renderClip, seedIncident } from './helpers'
 
 test.describe('forensics', () => {
-  test('four sources stay in lockstep and frame stepping is exact', async ({ page }) => {
+  test('synchronized tiles play in lockstep and frame stepping is exact', async ({ page, request }) => {
+    test.skip(!hasFfmpeg(), 'this test renders its own clips and needs ffmpeg on the machine')
     const errors = collectConsoleErrors(page)
-    const id = await firstIncidentId(page)
+
+    /* Two cameras on the same event, each contributing a real clip, is what the
+       stage exists to reconcile. */
+    const stamp = Date.now()
+    const a = `E2E-VID-A-${stamp}`
+    const b = `E2E-VID-B-${stamp}`
+    await registerSource(request, a, { lat: 12.99, lon: 77.61, sync_quality: 'A' })
+    await registerSource(request, b, { lat: 12.99002, lon: 77.61002, sync_quality: 'B' })
+
+    const clip = renderClip(6, 'A')!
+    const first = await ingestClip(request, a, {
+      t_start: stamp,
+      classes: ['lcv'],
+      trigger: 'object:placed_and_left',
+      situation_key: 'dumping',
+    }, clip)
+    await ingestClip(request, b, {
+      t_start: stamp + 1500,
+      classes: ['lcv'],
+      trigger: 'object:placed_and_left',
+      situation_key: 'dumping',
+    }, renderClip(6, 'B')!)
+
+    const id = first.incident_id!
     await page.goto(`/forensics/${id}`)
     await page.waitForSelector('canvas[aria-label="source coverage timeline"]')
     await page.waitForTimeout(2500)
@@ -34,8 +58,8 @@ test.describe('forensics', () => {
     expect(errors, errors.join('\n')).toHaveLength(0)
   })
 
-  test('a coverage gap is stated rather than shown as a frozen frame', async ({ page }) => {
-    const id = await firstIncidentId(page)
+  test('a coverage gap is stated rather than shown as a frozen frame', async ({ page, request }) => {
+    const id = await seedIncident(request)
     await page.goto(`/forensics/${id}`)
     await page.waitForTimeout(2500)
     /* The window opens on the anchor, so seek to the very start where sources
@@ -48,8 +72,8 @@ test.describe('forensics', () => {
     expect(body).toBeTruthy()
   })
 
-  test('a hash chip opens custody and verification recomputes the chain', async ({ page }) => {
-    const id = await firstIncidentId(page)
+  test('a hash chip opens custody and verification recomputes the chain', async ({ page, request }) => {
+    const id = await seedIncident(request)
     await page.goto(`/forensics/${id}`)
     await page.waitForSelector('[aria-label="evidence tree"]')
     await page.locator('[aria-label="evidence tree"] button[title*="click to open custody"]').first().click()

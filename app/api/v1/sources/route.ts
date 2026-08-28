@@ -1,37 +1,72 @@
 import type { NextRequest } from 'next/server'
-import { fixturesDisabled, json, list } from '../_lib/handler'
+import { badRequest, json, list, requires, session } from '../_lib/handler'
+import { listSources, registerSource } from '@/lib/store/sources'
+import { publish } from '@/lib/events/bus'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
-  if (process.env.NEXT_PUBLIC_DATA_MODE !== 'fixtures') return fixturesDisabled()
-  const { getWorld } = await import('@/lib/fixtures/world')
-  const w = getWorld()
   const q = req.nextUrl.searchParams
-  const types = new Set(list(q.get('type')))
-  const states = new Set(list(q.get('state')))
-  const zones = new Set(list(q.get('zone')))
-  const search = (q.get('q') ?? '').trim().toLowerCase()
+  const items = listSources({
+    types: list(q.get('type')),
+    states: list(q.get('state')),
+    zones: list(q.get('zone')),
+    search: q.get('q') ?? undefined,
+  })
+  return json({ items, next_cursor: null, total: items.length })
+}
 
-  /* last_observation_at is a live field. The world only advances it for vehicles
-     on the ticker, so healthy sources are refreshed here rather than appearing
-     to have gone quiet for as long as the server has been running. */
-  const now = Date.now()
-  for (const source of w.sources) {
-    if (source.state === 'up') {
-      source.last_observation_at = now - ((source.source_id.charCodeAt(4) * 137) % 9000)
-    } else if (source.state === 'degraded') {
-      source.last_observation_at = now - 20_000 - ((source.source_id.charCodeAt(4) * 911) % 90_000)
+/**
+ * Registers a real device.
+ *
+ * A source is an address the platform can reach: an RTSP or HLS URL for a
+ * camera, or nothing at all for a sensor that pushes to the ingest endpoint. It
+ * starts down and contributes nothing until it sends its first observation.
+ */
+export async function POST(req: NextRequest) {
+  const user = session(req)
+  const denied = requires(user, 'admin.configure')
+  if (denied) return denied
+
+  const body = (await req.json()) as Record<string, unknown>
+  const required = ['source_id', 'source_type', 'label', 'lat', 'lon']
+  for (const key of required) {
+    if (body[key] === undefined || body[key] === null || body[key] === '') {
+      return badRequest('missing_field', key)
     }
   }
+  const lat = Number(body.lat)
+  const lon = Number(body.lon)
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return badRequest('invalid_position')
 
-  const items = w.sources.filter((s) => {
-    if (types.size > 0 && !types.has(s.source_type)) return false
-    if (states.size > 0 && !states.has(s.state)) return false
-    if (zones.size > 0 && !zones.has(s.zone_id)) return false
-    if (search && !s.label.toLowerCase().includes(search) && !s.source_id.toLowerCase().includes(search)) return false
-    return true
+  const device = registerSource(
+    {
+      source_id: String(body.source_id),
+      source_type: String(body.source_type),
+      label: String(body.label),
+      site: body.site ? String(body.site) : undefined,
+      lat,
+      lon,
+      heading_deg: body.heading_deg === undefined ? null : Number(body.heading_deg),
+      fov_deg: body.fov_deg === undefined ? null : Number(body.fov_deg),
+      range_m: body.range_m === undefined ? null : Number(body.range_m),
+      stream_url: body.stream_url ? String(body.stream_url) : null,
+      stream_kind: body.stream_kind as 'rtsp' | 'hls' | 'file' | 'none' | undefined,
+      sync_quality: body.sync_quality as 'A' | 'B' | 'C' | 'D' | undefined,
+      clock_offset_ms: body.clock_offset_ms === undefined ? 0 : Number(body.clock_offset_ms),
+      firmware: body.firmware ? String(body.firmware) : undefined,
+      privacy_class: body.privacy_class ? String(body.privacy_class) : undefined,
+      sensor_kind: body.sensor_kind ? String(body.sensor_kind) : null,
+      representativity_m: body.representativity_m === undefined ? null : Number(body.representativity_m),
+    },
+    user.name,
+  )
+
+  publish({
+    type: 'source.health',
+    ts: Date.now(),
+    payload: { source_id: device.source_id, state: device.state, trust: device.trust, last_observation_at: device.last_observation_at },
   })
-  return json('sources', { items, next_cursor: null, total: items.length })
+  return json(device, 201)
 }

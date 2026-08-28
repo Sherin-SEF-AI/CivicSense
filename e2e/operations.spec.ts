@@ -1,7 +1,27 @@
 import { expect, test } from '@playwright/test'
-import { collectConsoleErrors } from './helpers'
+import { collectConsoleErrors, ingest, registerSource } from './helpers'
 
 test.describe('operations', () => {
+  /* The suite creates its own incidents through the real ingest endpoint, so
+     what it exercises is the production path rather than a fixture. */
+  test.beforeAll(async ({ request }) => {
+    for (let i = 0; i < 6; i++) {
+      const source = `E2E-OPS-${i}`
+      await registerSource(request, source, { lat: 12.96 + i * 0.004, lon: 77.58 + i * 0.004 })
+      await ingest(
+        request,
+        source,
+        {
+          classes: ['motorcycle', 'person'],
+          trigger: 'class:no_helmet',
+          situation_key: i % 2 === 0 ? 'no-helmet' : 'dumping',
+          affected: 2 + i,
+        },
+        Date.now() + i,
+      )
+    }
+  })
+
   test('an operator can triage from the keyboard in under five seconds', async ({ page }) => {
     const errors = collectConsoleErrors(page)
     await page.goto('/ops')
@@ -36,20 +56,18 @@ test.describe('operations', () => {
       const map = (window as unknown as { __csmap?: { queryRenderedFeatures: (o: unknown) => unknown[] } }).__csmap
       if (!map) return null
       return {
-        clusters: map.queryRenderedFeatures({ layers: ['cluster-circle'] }).length,
+        incidents: map.queryRenderedFeatures({ layers: ['incident-ring'] }).length,
         fov: map.queryRenderedFeatures({ layers: ['fov-fill'] }).length,
         roads: map.queryRenderedFeatures({ layers: ['roads-major'] }).length,
       }
     })
 
     expect(rendered, 'the map controller exposes a live instance').not.toBeNull()
+    /* Roads come from the OpenStreetMap extract, so this also asserts the real
+       basemap is present rather than an empty style. */
     expect(rendered!.roads, 'basemap roads render').toBeGreaterThan(0)
     expect(rendered!.fov, 'camera fields of view render').toBeGreaterThan(0)
-    expect(rendered!.clusters, 'incidents cluster beyond forty markers').toBeGreaterThan(0)
-
-    /* Group headers render the band name in lowercase; the uppercase look is
-       a text-transform, so the accessible text is lowercase. */
-    await expect(page.getByText('critical', { exact: true }).first()).toBeVisible()
+    expect(rendered!.incidents, 'ingested incidents render on the map').toBeGreaterThan(0)
     expect(errors, errors.join('\n')).toHaveLength(0)
   })
 

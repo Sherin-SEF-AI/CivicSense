@@ -199,11 +199,18 @@ export function QueryScreen() {
                         <span style={{ color: 'var(--ok)' }}>guard pass</span>
                         <button
                           type="button"
-                          onClick={() =>
-                            activeCaseId
-                              ? toast({ tone: 'ok', text: 'answer pinned to the case', detail: activeCaseId })
-                              : toast({ tone: 'error', text: 'no active case', detail: 'set an active case on the cases screen first' })
-                          }
+                          onClick={() => {
+                            if (!activeCaseId) {
+                              toast({ tone: 'error', text: 'no active case', detail: 'set an active case on the cases screen first' })
+                              return
+                            }
+                            void api
+                              .casePatch(activeCaseId, {
+                                note: `query: ${answer.question}\nanswer: ${answer.answer}\ncited: ${answer.citations.map((c) => c.incident_id).join(', ') || 'none'}`,
+                              })
+                              .then(() => toast({ tone: 'ok', text: 'answer pinned to the case', detail: activeCaseId }))
+                              .catch((error: unknown) => toast({ tone: 'error', text: 'could not pin', detail: errorDetail(error) }))
+                          }}
                           className="step ml-auto flex items-center gap-1 border border-[var(--line-1)] px-1.5 py-0.5 text-[var(--ink-2)] hover:text-[var(--ink-0)]"
                           style={{ borderRadius: 'var(--radius-chip)' }}
                         >

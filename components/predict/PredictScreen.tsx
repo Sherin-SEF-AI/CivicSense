@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import type { Domain, Warning, WarningLevel } from '@/lib/api/schemas'
 import { DOMAINS } from '@/lib/api/schemas/common'
 import { WARNING_LEVELS } from '@/lib/api/schemas/predict'
@@ -35,6 +35,25 @@ export function PredictScreen() {
   const [domain, setDomain] = useState<Domain | null>(null)
   const [levels, setLevels] = useState<Set<WarningLevel>>(new Set())
   const [selected, setSelected] = useState<string | null>(null)
+
+  const taskMutation = useMutation({
+    mutationFn: (input: { warning: Warning; intervention: Warning['interventions'][number] }) =>
+      api.taskIntervention(input.warning.warning_id, {
+        intervention_id: input.intervention.intervention_id,
+        intervention_label: input.intervention.label,
+        zone_label: input.warning.zone_label,
+        department: input.intervention.department,
+        lat: input.warning.position.lat,
+        lon: input.warning.position.lon,
+      }),
+    onSuccess: (tasking) =>
+      toast({
+        tone: 'ok',
+        text: tasking.assigned_label ? `tasked ${tasking.assigned_label}` : 'tasking recorded, no unit available',
+        detail: tasking.eta_minutes !== null ? `about ${tasking.eta_minutes} minutes out` : 'assign a unit when one comes on shift',
+      }),
+    onError: (error) => toast({ tone: 'error', text: 'tasking failed', detail: errorDetail(error) }),
+  })
 
   const warningsQuery = useQuery({
     queryKey: qk.warnings.list([...levels], domain ? [domain] : []),
@@ -194,13 +213,7 @@ export function PredictScreen() {
                           now={now}
                           expanded={selected === w.warning_id}
                           onToggle={() => setSelected(selected === w.warning_id ? null : w.warning_id)}
-                          onTask={(intervention) =>
-                            toast({
-                              tone: 'ok',
-                              text: 'patrol tasked',
-                              detail: `${intervention} at ${w.zone_label}, verification returns through the field loop`,
-                            })
-                          }
+                          onTask={(intervention) => taskMutation.mutate({ warning: w, intervention })}
                         />
                       ))}
                     </div>
@@ -271,7 +284,7 @@ function WarningCard({
   now: number | null
   expanded: boolean
   onToggle: () => void
-  onTask: (label: string) => void
+  onTask: (intervention: Warning['interventions'][number]) => void
 }) {
   const remaining = now === null ? null : warning.crossing_at - now
   return (
@@ -362,7 +375,7 @@ function WarningCard({
                     {intervention.taskable ? (
                       <button
                         type="button"
-                        onClick={() => onTask(intervention.label)}
+                        onClick={() => onTask(intervention)}
                         className="step ml-auto flex items-center gap-1 border border-[var(--line-1)] px-1.5 py-0.5 text-[var(--ink-1)] hover:text-[var(--ink-0)]"
                         style={{ borderRadius: 'var(--radius-chip)' }}
                       >

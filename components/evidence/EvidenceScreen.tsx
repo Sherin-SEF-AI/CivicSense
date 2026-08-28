@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { EvidenceItem, ParsedQuery } from '@/lib/api/schemas'
 import { Glyph } from '@/components/glyphs'
 import { EmptyState, ErrorPanel, LoadingBlocks } from '@/components/primitives/panels'
@@ -39,6 +39,7 @@ export function EvidenceScreen() {
   const toast = useUi((s) => s.toast)
   const openCustody = useUi((s) => s.openCustody)
   const activeCaseId = useSelection((s) => s.activeCaseId)
+  const qc = useQueryClient()
 
   const urlQuery = params.get('q') ?? ''
   const [draft, setDraft] = useState(urlQuery)
@@ -60,8 +61,20 @@ export function EvidenceScreen() {
   })
 
   const saveMutation = useMutation({
-    mutationFn: async () => submitted,
-    onSuccess: (q) => toast({ tone: 'ok', text: 'search saved', detail: `${q}, re-runs on new evidence` }),
+    mutationFn: () => api.saveSearch(submitted.slice(0, 64), submitted, true),
+    onSuccess: (record) =>
+      toast({ tone: 'ok', text: 'search saved', detail: `${record.name}, re-runs when new evidence arrives` }),
+    onError: (error) => toast({ tone: 'error', text: 'could not save the search', detail: errorDetail(error) }),
+  })
+
+  const attachMutation = useMutation({
+    mutationFn: (ids: string[]) => api.attachToCase(activeCaseId!, { evidence_ids: ids }),
+    onSuccess: async (updated) => {
+      await qc.invalidateQueries({ queryKey: qk.cases.all() })
+      toast({ tone: 'ok', text: `attached to ${updated.reference}`, detail: `${updated.evidence_count} items on the case` })
+      setSelected(new Set())
+    },
+    onError: (error) => toast({ tone: 'error', text: 'could not attach', detail: errorDetail(error) }),
   })
 
   const submit = useCallback(
@@ -247,8 +260,7 @@ export function EvidenceScreen() {
                     toast({ tone: 'error', text: 'select a case first', detail: 'evidence is attached to a case, not to a session' })
                     return
                   }
-                  toast({ tone: 'ok', text: `${selected.size} items sent to ${activeCase?.reference ?? activeCaseId}` })
-                  setSelected(new Set())
+                  attachMutation.mutate([...selected])
                 }}
                 className="step border border-[var(--line-1)] px-1.5 py-0.5 hover:text-[var(--ink-0)]"
                 style={{ borderRadius: 'var(--radius-chip)' }}

@@ -9,3 +9,5 @@ playwright-report
 
 # Derived from node_modules by scripts/sync-map-worker.mjs on dev and build
 public/vendor
+.osm-cache
+data

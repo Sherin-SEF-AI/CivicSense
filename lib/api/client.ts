@@ -88,13 +88,26 @@ export async function request<S extends z.ZodTypeAny>(
 
   if (!response.ok) {
     let code = `http_${response.status}`
+    let detail = ''
+    let body: unknown = null
     try {
-      const body = (await response.json()) as { error?: string }
-      if (body.error) code = body.error
+      body = await response.json()
+      const parsed = body as { error?: string; detail?: string }
+      if (parsed.error) code = parsed.error
+      if (parsed.detail) detail = parsed.detail
     } catch {
       /* a non-JSON error body is still an error, the status carries it */
     }
-    throw new ApiError(code, response.status, path, `${method} ${path} failed with ${response.status}`)
+
+    /* A 503 that carries a schema-valid body is an answer, not a failure: the
+       package endpoint uses it to say the reasoning layer is unavailable, and
+       the screen renders that rather than an error panel. */
+    if (response.status === 503 && body !== null) {
+      const parsed = schema.safeParse(body)
+      if (parsed.success) return parsed.data
+    }
+
+    throw new ApiError(code, response.status, path, detail || `${method} ${path} failed with ${response.status}`)
   }
 
   const payload: unknown = await response.json()

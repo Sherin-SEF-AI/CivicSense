@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useQuery } from '@tanstack/react-query'
 import type { SourceDevice } from '@/lib/api/schemas'
 import { SOURCE_TYPES } from '@/lib/api/schemas/common'
@@ -9,7 +10,7 @@ import { Glyph } from '@/components/glyphs'
 import { DataTable, downloadCsv, toCsv, type Column } from '@/components/data/DataTable'
 import { ScopeChart } from '@/components/data/ScopeChart'
 import { MapCanvas } from '@/components/map/MapCanvas'
-import { ErrorPanel, LoadingBlocks } from '@/components/primitives/panels'
+import { EmptyState, ErrorPanel, LoadingBlocks } from '@/components/primitives/panels'
 import { FilterChip, Overline } from '@/components/primitives/chips'
 import { SourceGlyph, StatusLED, SyncGrade, TrustBar } from '@/components/primitives/indicators'
 import { qk } from '@/lib/api/keys'
@@ -19,6 +20,7 @@ import { fmtDate, fmtDuration, fmtPct, fmtScore, fmtTime } from '@/lib/format'
 import { CANVAS } from '@/lib/tokens'
 import { useNow } from '@/lib/useNow'
 import { useUi } from '@/lib/stores/ui'
+import { RegisterSource } from './RegisterSource'
 
 const CALIBRATION_STALE_DAYS = 30
 
@@ -38,6 +40,17 @@ export function SourcesScreen() {
   const [search, setSearch] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [showMap, setShowMap] = useState(false)
+  const [registering, setRegistering] = useState(false)
+  const qc = useQueryClient()
+
+  const driftCheck = useMutation({
+    mutationFn: (sourceId: string) => api.runDriftCheck(sourceId),
+    onSuccess: async (run) => {
+      await qc.invalidateQueries({ queryKey: qk.sources.all() })
+      toast({ tone: 'ok', text: `drift check ${run.state}`, detail: run.detail })
+    },
+    onError: (error) => toast({ tone: 'error', text: 'could not queue the drift check', detail: errorDetail(error) }),
+  })
 
   const sourcesQuery = useQuery({
     queryKey: qk.sources.list([...types], [...states], search),
@@ -223,6 +236,19 @@ export function SourcesScreen() {
           </button>
           <button
             type="button"
+            onClick={() => setRegistering((v) => !v)}
+            className="mono step flex items-center gap-1 border px-2 py-1 text-[12.5px]"
+            style={{
+              borderRadius: 'var(--radius-chip)',
+              borderColor: registering ? 'var(--live)' : 'var(--line-1)',
+              color: registering ? 'var(--live)' : 'var(--ink-1)',
+            }}
+          >
+            <Glyph name="edge-device" size={12} />
+            register source
+          </button>
+          <button
+            type="button"
             onClick={() => downloadCsv('civicsense-sources.csv', toCsv(rows, columns))}
             className="mono step flex items-center gap-1 border border-[var(--line-1)] px-2 py-1 text-[12.5px] text-[var(--ink-1)] hover:text-[var(--ink-0)]"
             style={{ borderRadius: 'var(--radius-chip)' }}
@@ -232,6 +258,12 @@ export function SourcesScreen() {
           </button>
         </div>
       </header>
+
+      {registering ? (
+        <div className="flex-none border-b border-[var(--line-0)] p-3">
+          <RegisterSource onDone={() => setRegistering(false)} />
+        </div>
+      ) : null}
 
       {showMap ? (
         <div className="flex-none border-b border-[var(--line-0)]" style={{ height: 320 }}>
@@ -274,6 +306,13 @@ export function SourcesScreen() {
           <div className="p-3">
             <LoadingBlocks rows={14} />
           </div>
+        ) : rows.length === 0 && types.size === 0 && states.size === 0 && search === '' ? (
+          <EmptyState
+            line="no sources are registered. the platform sees nothing until a camera or sensor is connected."
+            actionLabel="register the first source"
+            onAction={() => setRegistering(true)}
+            glyph="edge-device"
+          />
         ) : (
           <DataTable
             rows={rows}
@@ -377,13 +416,8 @@ export function SourcesScreen() {
                       ) : null}
                       <button
                         type="button"
-                        onClick={() =>
-                          toast({
-                            tone: 'ok',
-                            text: 'drift check queued',
-                            detail: `${row.source_id} compares the current frame against its reference, and flags camera moved on mismatch`,
-                          })
-                        }
+                        onClick={() => driftCheck.mutate(row.source_id)}
+                        disabled={driftCheck.isPending}
                         className="mono step flex items-center gap-1.5 self-start border border-[var(--line-1)] px-2 py-1 text-[12.5px] text-[var(--ink-1)] hover:text-[var(--ink-0)]"
                         style={{ borderRadius: 'var(--radius-chip)' }}
                       >

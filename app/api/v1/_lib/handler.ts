@@ -1,47 +1,30 @@
 import 'server-only'
 import { NextResponse } from 'next/server'
-import { IS_FIXTURES } from '@/lib/env'
+import { get } from '@/lib/db'
+import type { Session } from '@/lib/api/schemas'
 
 /**
- * Shared plumbing for the fixture server.
+ * Shared plumbing for the API.
  *
- * Every handler is a real HTTP route so the client has one code path and no
- * fixture awareness: the swap to the production backend is a base URL. In a live
- * build these routes answer 404 and the fixture modules are never imported,
- * because the dynamic import below sits behind a constant the minifier folds.
+ * These routes are the platform's own backend: they read and write the store,
+ * and there is no second mode. Authentication is a header carrying the user id,
+ * which is what an identity proxy in front of this service would set.
  */
 
-export const FIXTURE_SENTINEL = 'civicsense-fixture-server'
-
-/**
- * The 404 a live build answers with.
- *
- * Callers must compare the inlined constant themselves rather than call a
- * predicate: NEXT_PUBLIC_DATA_MODE is replaced with a string literal at build
- * time, so `process.env.NEXT_PUBLIC_DATA_MODE !== 'fixtures'` folds to `true`
- * and everything after it, including the dynamic imports of the fixture world,
- * is provably unreachable and dropped. Hiding that comparison behind a function
- * defeats the analysis and ships the whole fixture world in a live build.
- */
-export function fixturesDisabled(): NextResponse {
-  return NextResponse.json({ error: 'not_found' }, { status: 404 })
+export function json<T>(data: T, status = 200): NextResponse {
+  return NextResponse.json(data, { status, headers: { 'Cache-Control': 'no-store' } })
 }
 
-export const FIXTURES_ENABLED = IS_FIXTURES
-
-/** Deterministic per-route delay, so loading states are genuinely exercised. */
-function latencyFor(key: string): number {
-  let h = 2166136261
-  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619)
-  return 20 + ((h >>> 0) % 100)
+export function notFound(what: string, id?: string): NextResponse {
+  return json({ error: 'not_found', what, id: id ?? null }, 404)
 }
 
-export async function json<T>(key: string, data: T, status = 200): Promise<NextResponse> {
-  await new Promise((r) => setTimeout(r, latencyFor(key)))
-  return NextResponse.json(data, {
-    status,
-    headers: { 'Cache-Control': 'no-store', 'X-Fixture-Server': FIXTURE_SENTINEL },
-  })
+export function badRequest(error: string, detail?: string): NextResponse {
+  return json({ error, detail: detail ?? null }, 400)
+}
+
+export function forbidden(capability: string): NextResponse {
+  return json({ error: 'forbidden', capability }, 403)
 }
 
 export function num(v: string | null, fallback: number): number {
@@ -54,7 +37,6 @@ export function list(v: string | null): string[] {
   return v === null || v === '' ? [] : v.split(',').filter(Boolean)
 }
 
-/** Opaque cursor over (detected_at, id), the same shape the real API uses. */
 export function encodeCursor(t: number, id: string): string {
   return Buffer.from(`${t}:${id}`).toString('base64url')
 }
@@ -68,4 +50,80 @@ export function decodeCursor(cursor: string | null): { t: number; id: string } |
   } catch {
     return null
   }
+}
+
+const CAPABILITIES_BY_ROLE: Record<string, Session['capabilities']> = {
+  admin: [
+    'incident.acknowledge', 'incident.dispatch', 'incident.escalate', 'incident.dismiss',
+    'evidence.search', 'evidence.person_search', 'case.create', 'case.legal_hold',
+    'case.disclose', 'forensics.pull', 'forensics.reanalyse', 'admin.configure', 'analytics.bias_audit',
+  ],
+  investigator: [
+    'incident.acknowledge', 'incident.dispatch', 'incident.escalate', 'evidence.search',
+    'evidence.person_search', 'case.create', 'case.legal_hold', 'case.disclose',
+    'forensics.pull', 'forensics.reanalyse', 'analytics.bias_audit',
+  ],
+  operator: [
+    'incident.acknowledge', 'incident.dispatch', 'incident.escalate', 'incident.dismiss',
+    'evidence.search', 'case.create', 'forensics.pull',
+  ],
+  /* A department user works their own queue and nothing else. */
+  department: ['incident.acknowledge', 'incident.dispatch'],
+}
+
+interface UserRow {
+  user_id: string
+  name: string
+  email: string
+  role: string
+  department: string | null
+  investigation_flag: number
+}
+
+/**
+ * The caller.
+ *
+ * X-User-Id is what an identity proxy sets after authenticating. When it is
+ * absent the single bootstrapped administrator is used, which is the correct
+ * behaviour for a deployment that has not been put behind a proxy yet.
+ */
+export function session(req: Request): Session {
+  const requested = req.headers.get('x-user-id')
+  const row =
+    (requested ? get<UserRow>('SELECT * FROM users WHERE user_id = ?', [requested]) : undefined) ??
+    get<UserRow>('SELECT * FROM users ORDER BY user_id ASC LIMIT 1')
+
+  if (!row) {
+    return {
+      user_id: 'anonymous',
+      name: 'anonymous',
+      email: '',
+      role: 'operator',
+      department: null,
+      department_label: null,
+      domains: [],
+      capabilities: [],
+      investigation_flag: false,
+    }
+  }
+
+  const department = row.department
+    ? get<{ label: string; domains: string }>('SELECT label, domains FROM departments WHERE department = ?', [row.department])
+    : undefined
+
+  return {
+    user_id: row.user_id,
+    name: row.name,
+    email: row.email,
+    role: row.role as Session['role'],
+    department: row.department,
+    department_label: department?.label ?? null,
+    domains: department ? (JSON.parse(department.domains) as Session['domains']) : [],
+    capabilities: CAPABILITIES_BY_ROLE[row.role] ?? [],
+    investigation_flag: row.investigation_flag === 1,
+  }
+}
+
+export function requires(s: Session, capability: Session['capabilities'][number]): NextResponse | null {
+  return s.capabilities.includes(capability) ? null : forbidden(capability)
 }

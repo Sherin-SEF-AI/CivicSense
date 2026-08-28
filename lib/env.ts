@@ -1,10 +1,11 @@
 /**
- * NEXT_PUBLIC_* values are inlined at build time, so these constants fold to
- * literals and let the minifier drop fixture-only code paths entirely.
+ * The API base.
+ *
+ * The application serves its own API from the same origin. The variable exists
+ * so the console can be pointed at a separate deployment of the backend without
+ * touching any code.
  */
-export const DATA_MODE = process.env.NEXT_PUBLIC_DATA_MODE ?? 'live'
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '/api/v1'
 
-export const IS_FIXTURES = DATA_MODE === 'fixtures'
-
-/** Base URL for the typed API client. Fixtures are served from the app itself. */
-export const API_BASE = IS_FIXTURES ? '/api/v1' : (process.env.NEXT_PUBLIC_API_BASE ?? '/v1')
+/** Dev-only surfaces are hidden outside development. */
+export const IS_DEV = process.env.NODE_ENV !== 'production'

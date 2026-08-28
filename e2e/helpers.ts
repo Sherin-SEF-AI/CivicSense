@@ -1,4 +1,8 @@
-import type { Page } from '@playwright/test'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { APIRequestContext, Page } from '@playwright/test'
 
 /** Console errors are a failure condition, so every spec collects them. */
 export function collectConsoleErrors(page: Page): string[] {
@@ -10,10 +14,145 @@ export function collectConsoleErrors(page: Page): string[] {
   return errors
 }
 
-export async function firstIncidentId(page: Page): Promise<string> {
-  const response = await page.request.get('/api/v1/incidents?limit=1')
-  const body = (await response.json()) as { items: { incident_id: string }[] }
-  const id = body.items[0]?.incident_id
-  if (!id) throw new Error('the fixture world returned no incidents')
-  return id
+/**
+ * Test data is created through the real ingest path.
+ *
+ * The suite registers a real source and posts real bytes to the same endpoint an
+ * edge agent uses, so what it exercises is the production path rather than a
+ * fixture shortcut. The image is generated here rather than committed.
+ */
+export function tinyPng(seed: number): Buffer {
+  /* A 1x1 PNG with the seed appended, so each call is distinct bytes. That is
+     what makes deduplication testable rather than assumed. */
+  const base = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  )
+  return Buffer.concat([base, Buffer.from(` civicsense-test-${seed}`)])
+}
+
+export async function registerSource(
+  request: APIRequestContext,
+  sourceId: string,
+  overrides: Record<string, unknown> = {},
+): Promise<void> {
+  const response = await request.post('/api/v1/sources', {
+    data: {
+      source_id: sourceId,
+      source_type: 'cctv-fixed',
+      label: `${sourceId} acceptance suite`,
+      lat: 12.9716,
+      lon: 77.5946,
+      heading_deg: 90,
+      fov_deg: 60,
+      range_m: 80,
+      sync_quality: 'B',
+      ...overrides,
+    },
+  })
+  if (!response.ok()) {
+    throw new Error(`registering ${sourceId} failed with ${response.status()}: ${await response.text()}`)
+  }
+}
+
+export interface IngestResult {
+  observation_id: string
+  incident_id: string | null
+  evidence: { sha256: string; bytes: number; deduplicated: boolean } | null
+}
+
+export async function ingest(
+  request: APIRequestContext,
+  sourceId: string,
+  payload: Record<string, unknown>,
+  seed = Date.now(),
+): Promise<IngestResult> {
+  const response = await request.post('/api/v1/ingest/observation', {
+    multipart: {
+      payload: JSON.stringify({ source_id: sourceId, t_start: Date.now(), payload_kind: 'keyframe', ...payload }),
+      media: { name: `frame-${seed}.png`, mimeType: 'image/png', buffer: tinyPng(seed) },
+    },
+  })
+  if (!response.ok()) throw new Error(`ingest failed with ${response.status()}: ${await response.text()}`)
+  return (await response.json()) as IngestResult
+}
+
+export async function ingestSensor(
+  request: APIRequestContext,
+  sourceId: string,
+  readings: { t: number; value: number; unit: string }[],
+): Promise<void> {
+  const response = await request.post('/api/v1/ingest/sensor', { data: { source_id: sourceId, readings } })
+  if (!response.ok()) throw new Error(`sensor ingest failed with ${response.status()}`)
+}
+
+export function hasFfmpeg(): boolean {
+  try {
+    execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Renders a short clip for the tests that need real video.
+ *
+ * The synchronized stage cannot be exercised against a still image, and the
+ * product ships no bundled media, so the suite makes its own. Timecode is burned
+ * in so a desynced tile is visible rather than merely asserted.
+ */
+export function renderClip(seconds: number, label: string): Buffer | null {
+  if (!hasFfmpeg()) return null
+  const dir = mkdtempSync(join(tmpdir(), 'civicsense-e2e-'))
+  const out = join(dir, 'clip.mp4')
+  const font = ['/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf', '/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf'].find(
+    (p) => existsSync(p),
+  )
+  const drawtext = font
+    ? `,drawtext=fontfile=${font}:text='%{pts\\:hms} ${label}':x=8:y=8:fontsize=18:fontcolor=white:box=1:boxcolor=black@0.6`
+    : ''
+  execFileSync(
+    'ffmpeg',
+    [
+      '-y', '-loglevel', 'error',
+      '-f', 'lavfi', '-i', `color=c=0x14171b:s=320x180:r=25:d=${seconds}`,
+      '-vf', `drawbox=x='mod(t*60\,360)-40':y=110:w=40:h=20:color=0x58a6ff:t=fill${drawtext}`,
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '34',
+      '-g', '25', '-keyint_min', '25', '-sc_threshold', '0', '-movflags', '+faststart',
+      out,
+    ],
+    { stdio: 'ignore' },
+  )
+  return readFileSync(out)
+}
+
+export async function ingestClip(
+  request: APIRequestContext,
+  sourceId: string,
+  payload: Record<string, unknown>,
+  clip: Buffer,
+): Promise<IngestResult> {
+  const response = await request.post('/api/v1/ingest/observation', {
+    multipart: {
+      payload: JSON.stringify({ source_id: sourceId, t_start: Date.now(), payload_kind: 'clip', ...payload }),
+      media: { name: `clip-${Date.now()}.mp4`, mimeType: 'video/mp4', buffer: clip },
+    },
+  })
+  if (!response.ok()) throw new Error(`clip ingest failed with ${response.status()}: ${await response.text()}`)
+  return (await response.json()) as IngestResult
+}
+
+/** Creates an incident through the real path and returns its id. */
+export async function seedIncident(request: APIRequestContext, sourceId?: string): Promise<string> {
+  const id = sourceId ?? `E2E-CAM-${Date.now()}`
+  await registerSource(request, id)
+  const result = await ingest(request, id, {
+    classes: ['motorcycle', 'person'],
+    trigger: 'class:no_helmet',
+    situation_key: 'no-helmet',
+    affected: 2,
+  })
+  if (!result.incident_id) throw new Error('the trigger did not form an incident')
+  return result.incident_id
 }

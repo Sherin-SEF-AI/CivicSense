@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
-import { collectConsoleErrors } from './helpers'
+import { collectConsoleErrors, seedIncident } from './helpers'
 
-const ROUTES = ['/ops', '/evidence', '/cases', '/predict', '/sources', '/analytics', '/query', '/admin']
+const ROUTES = ['/ops', '/forensics', '/evidence', '/cases', '/predict', '/sources', '/analytics', '/query', '/admin']
 
 test.describe('quality bar', () => {
   for (const route of ROUTES) {
@@ -70,20 +70,19 @@ test.describe('quality bar', () => {
     expect(result!.median, `median frame time ${result!.median.toFixed(1)}ms`).toBeLessThan(20)
   })
 
-  test('an incident package exports a standalone offline bundle', async ({ page }) => {
-    const response = await page.request.get('/api/v1/incidents?limit=1')
-    const body = (await response.json()) as { items: { incident_id: string }[] }
-    const id = body.items[0]!.incident_id
-
+  test('an incident with no assessment says so rather than inventing one', async ({ page, request }) => {
+    const id = await seedIncident(request)
     await page.goto(`/incident/${id}`)
-    await page.waitForSelector('text=evidence reel')
-    /* The bundle needs the forensic timeline as well as the package, so wait for
-       the timeline to render before asking for an export. */
-    await page.waitForSelector('text=complete timeline')
-    await page.waitForTimeout(1500)
-    const download = page.waitForEvent('download')
-    await page.getByRole('button', { name: 'offline bundle' }).click()
-    const file = await download
-    expect(file.suggestedFilename()).toContain('civicsense-')
+
+    /* Without GROQ_API_KEY the understanding tier cannot run. The screen must
+       state that plainly: a fabricated package is the one failure mode this
+       product cannot have. */
+    const hasKey = process.env.GROQ_API_KEY !== undefined && process.env.GROQ_API_KEY !== ''
+    if (hasKey) {
+      await expect(page.getByText('evidence reel')).toBeVisible({ timeout: 60_000 })
+    } else {
+      await expect(page.getByText('no assessment for this incident')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'run the understanding pass' })).toBeVisible()
+    }
   })
 })

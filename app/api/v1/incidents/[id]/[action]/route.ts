@@ -1,55 +1,41 @@
 import type { NextRequest } from 'next/server'
-import { fixturesDisabled, json } from '../../../_lib/handler'
+import { badRequest, json, notFound, requires, session } from '../../../_lib/handler'
+import { applyAction, type IncidentAction } from '@/lib/store/incidents'
+import { publish } from '@/lib/events/bus'
+import type { Capability } from '@/lib/api/schemas'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const ACTIONS = new Set(['ack', 'dispatch', 'escalate', 'resolve', 'dismiss'])
+const CAPABILITY: Record<IncidentAction, Capability> = {
+  ack: 'incident.acknowledge',
+  dispatch: 'incident.dispatch',
+  escalate: 'incident.escalate',
+  resolve: 'incident.acknowledge',
+  dismiss: 'incident.dismiss',
+}
 
-/**
- * Operator mutations. These are the only nondeterministic events in the fixture
- * world: they are held in a separate mutation log and applied on top of the
- * deterministic base, so the world stays reproducible while actions still stick.
- */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string; action: string }> }) {
-  if (process.env.NEXT_PUBLIC_DATA_MODE !== 'fixtures') return fixturesDisabled()
   const { id, action } = await ctx.params
-  if (!ACTIONS.has(action)) return json('action-400', { error: 'unknown_action', action }, 400)
+  if (!(action in CAPABILITY)) return badRequest('unknown_action', action)
 
-  const { getWorld, withMutations } = await import('@/lib/fixtures/world')
-  const { getHub } = await import('@/lib/fixtures/hub')
-  const w = getWorld()
-  const base = w.index.incidentById.get(id)
-  if (!base) return json('action-404', { error: 'not_found', incident_id: id }, 404)
+  const user = session(req)
+  const denied = requires(user, CAPABILITY[action as IncidentAction])
+  if (denied) return denied
 
-  const now = Date.now()
   let body: { reason?: string } = {}
   try {
     body = (await req.json()) as { reason?: string }
   } catch {
     body = {}
   }
-
-  switch (action) {
-    case 'ack':
-      w.mutations.acks.set(id, now)
-      break
-    case 'dispatch':
-      w.mutations.dispatches.set(id, now)
-      break
-    case 'escalate':
-      w.mutations.escalations.set(id, now)
-      break
-    case 'resolve':
-      w.mutations.resolutions.set(id, now)
-      break
-    case 'dismiss':
-      if (!body.reason) return json('action-422', { error: 'reason_required' }, 422)
-      w.mutations.dismissals.set(id, body.reason)
-      break
+  if (action === 'dismiss' && !body.reason) {
+    return badRequest('reason_required', 'a dismissal reason feeds the trigger thresholds and is required')
   }
 
-  const updated = withMutations(w, base)
-  getHub().publish({ type: 'incident.updated', ts: now, payload: updated })
-  return json('action', updated)
+  const updated = applyAction(id, action as IncidentAction, user.name, body.reason)
+  if (!updated) return notFound('incident', id)
+
+  publish({ type: 'incident.updated', ts: Date.now(), payload: updated })
+  return json(updated)
 }

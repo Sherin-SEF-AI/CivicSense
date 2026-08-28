@@ -1,14 +1,11 @@
-import { fixturesDisabled, json } from '../../_lib/handler'
+import { json, notFound } from '../../_lib/handler'
+import { getIncident } from '@/lib/store/incidents'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  if (process.env.NEXT_PUBLIC_DATA_MODE !== 'fixtures') return fixturesDisabled()
   const { id } = await ctx.params
-  const { getWorld, withMutations } = await import('@/lib/fixtures/world')
-  const w = getWorld()
-  const base = w.index.incidentById.get(id)
-  if (!base) return json('incident-404', { error: 'not_found', incident_id: id }, 404)
-  return json('incident', withMutations(w, base))
+  const incident = getIncident(id)
+  return incident ? json(incident) : notFound('incident', id)
 }

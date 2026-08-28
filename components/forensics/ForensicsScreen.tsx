@@ -26,6 +26,7 @@ import { fmtBytes, fmtDuration, fmtPct, fmtTime } from '@/lib/format'
 import { useSelection } from '@/lib/stores/selection'
 import { useUi } from '@/lib/stores/ui'
 import { buildOfflineBundleAsync, downloadText } from '@/lib/export/offline'
+import { isUnavailable } from '@/components/primitives/ReasoningUnavailable'
 
 /**
  * The forensics workspace.
@@ -120,6 +121,37 @@ export function ForensicsScreen({ incidentId }: { incidentId: string }) {
   }, [bundle, tiles.length, setTiles, focus])
 
   const focusedSource = bundle?.playback.find((p) => p.source_id === focusedSourceId) ?? null
+
+  /* Every source with evidence, whether or not it has a playable stream. */
+  const evidenceSources = useMemo(() => {
+    if (!bundle) return []
+    const seen = new Map<string, { source_id: string; source_type: PlaybackSource['source_type']; sync_quality: PlaybackSource['sync_quality'] }>()
+    for (const node of bundle.tree) {
+      if (!seen.has(node.source_id)) {
+        const playback = bundle.playback.find((p) => p.source_id === node.source_id)
+        seen.set(node.source_id, {
+          source_id: node.source_id,
+          source_type: node.source_type,
+          sync_quality: playback?.sync_quality ?? 'D',
+        })
+      }
+    }
+    for (const playback of bundle.playback) {
+      if (playback.tile_kind !== 'video' && !seen.has(playback.source_id)) {
+        seen.set(playback.source_id, {
+          source_id: playback.source_id,
+          source_type: playback.source_type,
+          sync_quality: playback.sync_quality,
+        })
+      }
+    }
+    return [...seen.values()]
+  }, [bundle])
+
+  const playable = useMemo(
+    () => new Set((bundle?.playback ?? []).map((p) => p.source_id)),
+    [bundle],
+  )
 
   const step = useCallback(
     (direction: 1 | -1) => {
@@ -241,7 +273,14 @@ export function ForensicsScreen({ incidentId }: { incidentId: string }) {
   }, [bundle, selection, incidentId, tiles, toast])
 
   const exportOffline = useCallback(async () => {
-    if (!bundle || !packageQuery.data) return
+    if (!bundle || !packageQuery.data || isUnavailable(packageQuery.data)) {
+      toast({
+        tone: 'error',
+        text: 'no package to export',
+        detail: 'the understanding pass has not run for this incident, so there is nothing to put in a bundle',
+      })
+      return
+    }
     const html = await buildOfflineBundleAsync(packageQuery.data, bundle)
     downloadText(`civicsense-${incidentId}.html`, html, 'text/html')
     toast({ tone: 'ok', text: 'offline bundle exported', detail: 'opens standalone, hashes printed in full' })
@@ -369,7 +408,11 @@ export function ForensicsScreen({ incidentId }: { incidentId: string }) {
             <Overline>evidence</Overline>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {bundle.playback.map((source) => {
+            {/* Grouped by the sources that actually contributed evidence, not by
+                the sources that have a playable stream: a still keyframe is
+                evidence and must not be invisible because its camera sent no
+                video. */}
+            {evidenceSources.map((source) => {
               const items = bundle.tree.filter((n) => n.source_id === source.source_id)
               const onStage = tiles.includes(source.source_id)
               return (
@@ -377,7 +420,14 @@ export function ForensicsScreen({ incidentId }: { incidentId: string }) {
                   <button
                     type="button"
                     onClick={() => toggleTile(source.source_id)}
-                    title={onStage ? 'remove from the stage' : 'add to the stage, up to four tiles'}
+                    disabled={!playable.has(source.source_id)}
+                    title={
+                      !playable.has(source.source_id)
+                        ? 'this source contributed evidence but has nothing playable, so it cannot go on the stage'
+                        : onStage
+                          ? 'remove from the stage'
+                          : 'add to the stage, up to four tiles'
+                    }
                     className="step flex w-full items-center gap-1.5 px-2 py-1.5 text-left"
                     style={{ background: onStage ? 'var(--bg-3)' : undefined }}
                   >
@@ -419,10 +469,23 @@ export function ForensicsScreen({ incidentId }: { incidentId: string }) {
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 p-2">
             {stageSources.length === 0 ? (
-              <EmptyState line="no sources on the stage" actionLabel="add the first source" onAction={() => {
-                const first = bundle.playback[0]
-                if (first) toggleTile(first.source_id)
-              }} glyph="storyboard" />
+              <EmptyState
+                line={
+                  bundle.playback.some((p) => p.tile_kind === 'video')
+                    ? 'no sources on the stage'
+                    : 'no playable media in this incident. the evidence on the left is still imagery and readings, which the deck and the rails still work from.'
+                }
+                actionLabel={bundle.playback.length > 0 ? 'add the first source' : undefined}
+                onAction={
+                  bundle.playback.length > 0
+                    ? () => {
+                        const first = bundle.playback[0]
+                        if (first) toggleTile(first.source_id)
+                      }
+                    : undefined
+                }
+                glyph="storyboard"
+              />
             ) : (
               <div
                 className="grid h-full min-h-0 gap-2"

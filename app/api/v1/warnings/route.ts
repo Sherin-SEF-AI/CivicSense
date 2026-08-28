@@ -1,22 +1,26 @@
 import type { NextRequest } from 'next/server'
-import { fixturesDisabled, json, list } from '../_lib/handler'
+import { json, list, num } from '../_lib/handler'
+import { computeWarnings, interventionOutcomes } from '@/lib/store/predict'
+import { all } from '@/lib/db'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
-  if (process.env.NEXT_PUBLIC_DATA_MODE !== 'fixtures') return fixturesDisabled()
-  const { getWorld } = await import('@/lib/fixtures/world')
-  const w = getWorld()
   const q = req.nextUrl.searchParams
+  const horizonParam = num(q.get('horizon'), 6)
+  const horizon = horizonParam === 1 || horizonParam === 6 || horizonParam === 24 ? (horizonParam as 1 | 6 | 24) : 6
+
   const levels = new Set(list(q.get('level')))
   const domains = new Set(list(q.get('domain')))
-  const horizon = q.get('horizon')
-  const items = w.warnings.filter((x) => {
-    if (levels.size > 0 && !levels.has(x.level)) return false
-    if (domains.size > 0 && !domains.has(x.domain)) return false
-    if (horizon && String(x.horizon_h) !== horizon) return false
-    return true
-  }).map((x) => (w.mutations.warningAcks.has(x.warning_id) ? { ...x, acknowledged: true } : x))
-  return json('warnings', { items, outcomes: w.outcomes, total: items.length })
+
+  const acknowledged = new Set(
+    all<{ warning_id: string }>('SELECT warning_id FROM warnings WHERE acknowledged = 1').map((r) => r.warning_id),
+  )
+
+  const items = computeWarnings(horizon)
+    .filter((w) => (levels.size === 0 || levels.has(w.level)) && (domains.size === 0 || domains.has(w.domain)))
+    .map((w) => (acknowledged.has(w.warning_id) ? { ...w, acknowledged: true } : w))
+
+  return json({ items, outcomes: interventionOutcomes(), total: items.length })
 }

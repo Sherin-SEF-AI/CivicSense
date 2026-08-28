@@ -1,6 +1,10 @@
 import { z } from 'zod'
 import {
   AnalyticsOverviewSchema,
+  SessionSchema,
+  SavedSearchRecordSchema,
+  TaskingSchema,
+  CalibrationRunSchema,
   AuditEntrySchema,
   BudgetSchema,
   CaseDetailSchema,
@@ -43,6 +47,7 @@ const AdminSchema = z.object({
   budgets: z.array(BudgetSchema),
   users: z.array(UserSchema),
   audit: z.array(AuditEntrySchema),
+  audit_chain: z.object({ valid: z.boolean(), brokenAt: z.number().nullable(), entries: z.number() }),
 })
 export type AdminBundle = z.infer<typeof AdminSchema>
 
@@ -59,7 +64,67 @@ const PullResultSchema = z.object({
 })
 export type PullResult = z.infer<typeof PullResultSchema>
 
+/** The package endpoint answers 503 with a reason when the model is not configured. */
+export const ReasoningUnavailableSchema = z.object({
+  error: z.literal('reasoning_unavailable'),
+  detail: z.string(),
+  incident: IncidentSummarySchema,
+})
+
 export const api = {
+  session: (signal?: AbortSignal) => request('/session', SessionSchema, { signal }),
+
+  savedSearches: (signal?: AbortSignal) =>
+    request('/saved-searches', z.object({ items: z.array(SavedSearchRecordSchema) }), { signal }),
+
+  saveSearch: (name: string, query: string, rerun: boolean) =>
+    request('/saved-searches', SavedSearchRecordSchema, { method: 'POST', body: { name, query, rerun } }),
+
+  updateSavedSearch: (id: string, patch: { rerun_on_new_evidence?: boolean; name?: string }) =>
+    request(`/saved-searches/${encodeURIComponent(id)}`, SavedSearchRecordSchema, { method: 'PATCH', body: patch }),
+
+  deleteSavedSearch: (id: string) =>
+    request(`/saved-searches/${encodeURIComponent(id)}`, z.object({ deleted: z.string() }), { method: 'DELETE' }),
+
+  registerSource: (body: Record<string, unknown>) =>
+    request('/sources', SourceDeviceSchema, { method: 'POST', body }),
+
+  deleteSource: (id: string) =>
+    request(`/sources/${encodeURIComponent(id)}`, z.object({ deleted: z.string() }), { method: 'DELETE' }),
+
+  runDriftCheck: (id: string) =>
+    request(`/sources/${encodeURIComponent(id)}/calibration`, CalibrationRunSchema, { method: 'POST', body: {} }),
+
+  attachToCase: (caseId: string, body: { evidence_ids?: string[]; incident_ids?: string[] }) =>
+    request(`/cases/${encodeURIComponent(caseId)}/evidence`, CaseDetailSchema, { method: 'POST', body }),
+
+  createBundle: (caseId: string, recipientClass: string, recipient: string) =>
+    request(`/cases/${encodeURIComponent(caseId)}/bundles`, CaseDetailSchema, {
+      method: 'POST',
+      body: { recipient_class: recipientClass, recipient },
+    }),
+
+  issueCertificate: (caseId: string, body: { issued_by: string; role: string; device_particulars: string }) =>
+    request(`/cases/${encodeURIComponent(caseId)}/certificate`, CaseDetailSchema, { method: 'POST', body }),
+
+  taskIntervention: (
+    warningId: string,
+    body: { intervention_id: string; intervention_label: string; zone_label: string; department: string; lat: number; lon: number },
+  ) => request(`/warnings/${encodeURIComponent(warningId)}/task`, TaskingSchema, { method: 'POST', body }),
+
+  updateZone: (body: { zone_id: string; kind?: string; sensitivity?: number; label?: string }) =>
+    request('/zones', ZoneSchema, { method: 'PATCH', body }),
+
+  updatePlaybook: (id: string, body: Record<string, unknown>) =>
+    request(`/admin/playbooks/${encodeURIComponent(id)}`, PlaybookSchema, { method: 'PATCH', body }),
+
+  refreshPackage: (id: string) =>
+    request(`/incidents/${encodeURIComponent(id)}/package`, z.object({
+      package: IntelligencePackageSchema,
+      dropped_claims: z.number(),
+      citation_validity: z.number(),
+    }), { method: 'POST', body: {} }),
+
   systemHealth: (signal?: AbortSignal) => request('/system/health', SystemHealthSchema, { signal }),
 
   incidents: (filters: IncidentFilters, cursor: string | null, signal?: AbortSignal) =>
@@ -81,8 +146,14 @@ export const api = {
   incident: (id: string, signal?: AbortSignal) =>
     request(`/incidents/${encodeURIComponent(id)}`, IncidentSummarySchema, { signal }),
 
+  /* Answers either a package or an explicit unavailability, never a fabricated
+     package. The caller renders whichever came back. */
   incidentPackage: (id: string, signal?: AbortSignal) =>
-    request(`/incidents/${encodeURIComponent(id)}/package`, IntelligencePackageSchema, { signal }),
+    request(
+      `/incidents/${encodeURIComponent(id)}/package`,
+      z.union([IntelligencePackageSchema, ReasoningUnavailableSchema]),
+      { signal },
+    ),
 
   incidentAction: (id: string, action: 'ack' | 'dispatch' | 'escalate' | 'resolve' | 'dismiss', reason?: string) =>
     request(`/incidents/${encodeURIComponent(id)}/${action}`, IncidentSummarySchema, {

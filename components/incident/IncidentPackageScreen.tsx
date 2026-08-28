@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Glyph } from '@/components/glyphs'
 import { CopyChip, EvidenceChip, HashChip, Overline } from '@/components/primitives/chips'
 import {
@@ -23,6 +23,7 @@ import {
   SyncGrade,
 } from '@/components/primitives/indicators'
 import { CausalGraphPanel } from './CausalGraphPanel'
+import { isUnavailable, ReasoningUnavailablePanel } from '@/components/primitives/ReasoningUnavailable'
 import { qk } from '@/lib/api/keys'
 import { api } from '@/lib/api/resources'
 import { errorCode, errorDetail } from '@/lib/api/client'
@@ -57,6 +58,15 @@ export function IncidentPackageScreen({ incidentId }: { incidentId: string }) {
     queryFn: ({ signal }) => api.incidentPackage(incidentId, signal),
   })
 
+  const refreshMutation = useMutation({
+    mutationFn: () => api.refreshPackage(incidentId),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: qk.incidents.package(incidentId) })
+      toast({ tone: 'ok', text: 'understanding pass complete' })
+    },
+    onError: (error) => toast({ tone: 'error', text: 'the understanding pass failed', detail: errorDetail(error) }),
+  })
+
   const forensicsQuery = useQuery({
     queryKey: qk.forensics.bundle(incidentId, activeCaseId),
     queryFn: ({ signal }) => api.forensics(incidentId, activeCaseId, signal),
@@ -78,6 +88,31 @@ export function IncidentPackageScreen({ incidentId }: { incidentId: string }) {
     return (
       <div className="w-full overflow-auto p-6">
         <LoadingBlocks rows={12} height={44} />
+      </div>
+    )
+  }
+
+  if (isUnavailable(packageQuery.data)) {
+    return (
+      <div className="w-full overflow-auto">
+        <div className="mx-auto flex max-w-[900px] flex-col gap-4 px-6 py-6">
+          <header className="flex flex-col gap-2 border-b border-[var(--line-0)] pb-4">
+            <Link href="/ops" className="mono step flex w-fit items-center gap-1 text-[11px] text-[var(--ink-2)] hover:text-[var(--ink-0)]">
+              <Glyph name="chevron-e" size={11} style={{ transform: 'rotate(180deg)' }} />
+              operations
+            </Link>
+            <h1 className="text-[20px] leading-tight text-[var(--ink-0)]">{packageQuery.data.incident.title}</h1>
+            <p className="mono text-[11px] text-[var(--ink-2)]">
+              {packageQuery.data.incident.incident_id} · {fmtDateTime(packageQuery.data.incident.detected_at)} ·{' '}
+              {packageQuery.data.incident.zone_label}
+            </p>
+          </header>
+          <ReasoningUnavailablePanel
+            detail={packageQuery.data.detail}
+            onRetry={() => void refreshMutation.mutate()}
+            retrying={refreshMutation.isPending}
+          />
+        </div>
       </div>
     )
   }

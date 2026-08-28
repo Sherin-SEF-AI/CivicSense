@@ -1,0 +1,168 @@
+{
+  "deployment": {
+    "name": "Bengaluru pilot",
+    "timezone": "Asia/Kolkata",
+    "bbox": [77.45, 12.83, 77.78, 13.11],
+    "center": { "lat": 12.9716, "lon": 77.5946 }
+  },
+  "departments": [
+    {
+      "department": "traffic-police",
+      "label": "Bengaluru Traffic Police",
+      "domains": ["traffic", "vehicle"],
+      "contacts": [],
+      "sla_seconds": { "CRITICAL": 300, "HIGH": 1800, "MEDIUM": 7200, "LOW": 28800, "INFO": 86400 },
+      "escalation_to": "city-police"
+    },
+    {
+      "department": "city-police",
+      "label": "Bengaluru City Police",
+      "domains": ["safety", "nuisance"],
+      "contacts": [],
+      "sla_seconds": { "CRITICAL": 300, "HIGH": 1800, "MEDIUM": 7200, "LOW": 28800, "INFO": 86400 },
+      "escalation_to": null
+    },
+    {
+      "department": "sanitation",
+      "label": "BBMP Solid Waste Management",
+      "domains": ["waste"],
+      "contacts": [],
+      "sla_seconds": { "CRITICAL": 900, "HIGH": 7200, "MEDIUM": 28800, "LOW": 86400, "INFO": 172800 },
+      "escalation_to": null
+    },
+    {
+      "department": "pwd",
+      "label": "BBMP Engineering",
+      "domains": ["infrastructure"],
+      "contacts": [],
+      "sla_seconds": { "CRITICAL": 900, "HIGH": 14400, "MEDIUM": 86400, "LOW": 259200, "INFO": 604800 },
+      "escalation_to": null
+    },
+    {
+      "department": "bescom",
+      "label": "BESCOM",
+      "domains": ["infrastructure"],
+      "contacts": [],
+      "sla_seconds": { "CRITICAL": 900, "HIGH": 14400, "MEDIUM": 86400, "LOW": 259200, "INFO": 604800 },
+      "escalation_to": null
+    },
+    {
+      "department": "pollution-control",
+      "label": "Karnataka State Pollution Control Board",
+      "domains": ["environment"],
+      "contacts": [],
+      "sla_seconds": { "CRITICAL": 1800, "HIGH": 14400, "MEDIUM": 86400, "LOW": 259200, "INFO": 604800 },
+      "escalation_to": null
+    },
+    {
+      "department": "disaster-cell",
+      "label": "BBMP Disaster Management Cell",
+      "domains": ["disaster"],
+      "contacts": [],
+      "sla_seconds": { "CRITICAL": 180, "HIGH": 1800, "MEDIUM": 7200, "LOW": 28800, "INFO": 86400 },
+      "escalation_to": null
+    },
+    {
+      "department": "fire-services",
+      "label": "Karnataka Fire and Emergency Services",
+      "domains": ["disaster"],
+      "contacts": [],
+      "sla_seconds": { "CRITICAL": 180, "HIGH": 900, "MEDIUM": 3600, "LOW": 14400, "INFO": 86400 },
+      "escalation_to": null
+    },
+    {
+      "department": "emergency-112",
+      "label": "Emergency Response Support System 112",
+      "domains": ["safety"],
+      "contacts": [],
+      "sla_seconds": { "CRITICAL": 120, "HIGH": 600, "MEDIUM": 3600, "LOW": 14400, "INFO": 86400 },
+      "escalation_to": null
+    },
+    {
+      "department": "animal-control",
+      "label": "BBMP Animal Husbandry",
+      "domains": ["safety"],
+      "contacts": [],
+      "sla_seconds": { "CRITICAL": 1800, "HIGH": 14400, "MEDIUM": 86400, "LOW": 259200, "INFO": 604800 },
+      "escalation_to": null
+    },
+    {
+      "department": "bbmp-forest",
+      "label": "BBMP Forest Cell",
+      "domains": ["disaster"],
+      "contacts": [],
+      "sla_seconds": { "CRITICAL": 1800, "HIGH": 14400, "MEDIUM": 86400, "LOW": 259200, "INFO": 604800 },
+      "escalation_to": null
+    },
+    {
+      "department": "transport-dept",
+      "label": "Karnataka Transport Department",
+      "domains": ["vehicle"],
+      "contacts": [],
+      "sla_seconds": { "CRITICAL": 1800, "HIGH": 14400, "MEDIUM": 86400, "LOW": 259200, "INFO": 604800 },
+      "escalation_to": null
+    }
+  ],
+  "playbooks": [
+    {
+      "playbook_id": "PB-LIFE-SAFETY",
+      "name": "life safety, dispatch then enrich",
+      "domain": "safety",
+      "min_priority": "CRITICAL",
+      "steps": [
+        { "step_id": "s1", "text": "pre-alert 112 and the nearest patrol with location and source link", "owner": "system", "timer_s": 3, "automatic": true, "approval_gate": false },
+        { "step_id": "s2", "text": "attach the scene assessment when the understanding pass returns", "owner": "system", "timer_s": 15, "automatic": true, "approval_gate": false },
+        { "step_id": "s3", "text": "request corridor pre-clearing from the traffic management system", "owner": "traffic-police", "timer_s": 60, "automatic": true, "approval_gate": false },
+        { "step_id": "s4", "text": "confirm ambulance assignment and estimated arrival", "owner": "emergency-112", "timer_s": 120, "automatic": false, "approval_gate": false },
+        { "step_id": "s5", "text": "attach arrival evidence from the responding unit and close the sla", "owner": "city-police", "timer_s": null, "automatic": true, "approval_gate": false }
+      ]
+    },
+    {
+      "playbook_id": "PB-WASTE-ROUTE",
+      "name": "dumping with a route failure behind it",
+      "domain": "waste",
+      "min_priority": "MEDIUM",
+      "steps": [
+        { "step_id": "s1", "text": "raise the operations brief for the missed collection", "owner": "sanitation", "timer_s": 900, "automatic": true, "approval_gate": false },
+        { "step_id": "s2", "text": "raise the enforcement brief with the vehicle evidence", "owner": "traffic-police", "timer_s": 900, "automatic": false, "approval_gate": true },
+        { "step_id": "s3", "text": "verify clearance with the nearest source after reported resolution", "owner": "system", "timer_s": 7200, "automatic": true, "approval_gate": false }
+      ]
+    },
+    {
+      "playbook_id": "PB-PROPORTIONALITY",
+      "name": "proportionate response for a minor first observation",
+      "domain": "nuisance",
+      "min_priority": "LOW",
+      "steps": [
+        { "step_id": "s1", "text": "check repeat history for this location over thirty days", "owner": "system", "timer_s": 60, "automatic": true, "approval_gate": false },
+        { "step_id": "s2", "text": "if this is a first observation in a low risk context, issue the educational disposition", "owner": "system", "timer_s": 120, "automatic": true, "approval_gate": false },
+        { "step_id": "s3", "text": "if the pattern repeats, raise an infrastructure request rather than enforcement", "owner": "sanitation", "timer_s": 3600, "automatic": false, "approval_gate": true }
+      ]
+    },
+    {
+      "playbook_id": "PB-WATER-LOGGING",
+      "name": "water logging, pre-positioning",
+      "domain": "disaster",
+      "min_priority": "HIGH",
+      "steps": [
+        { "step_id": "s1", "text": "confirm the water level reading and the visual water class agree", "owner": "system", "timer_s": 30, "automatic": true, "approval_gate": false },
+        { "step_id": "s2", "text": "pre-position the pump crew and the tanker", "owner": "disaster-cell", "timer_s": 600, "automatic": false, "approval_gate": true },
+        { "step_id": "s3", "text": "publish the depth estimate with its reference object and uncertainty", "owner": "system", "timer_s": 300, "automatic": true, "approval_gate": false }
+      ]
+    }
+  ],
+  "budgets": [
+    { "scope": "tenant", "key": "default", "label": "deployment", "daily_usd": 12, "monthly_usd": 400 }
+  ],
+  "zone_profiles": {
+    "default_kind": "residential",
+    "default_sensitivity": 0.5,
+    "keywords": {
+      "hospital": ["hospital", "medical", "health"],
+      "market": ["market", "bazaar", "pete", "chowk"],
+      "transit-hub": ["station", "bus stand", "depot", "terminal", "junction"],
+      "industrial": ["industrial", "estate", "peenya", "itpl", "electronic city"],
+      "religious": ["temple", "mosque", "church", "math", "mandir", "masjid"]
+    }
+  }
+}

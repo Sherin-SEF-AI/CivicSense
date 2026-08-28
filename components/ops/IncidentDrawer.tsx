@@ -15,6 +15,7 @@ import { api } from '@/lib/api/resources'
 import { errorCode, errorDetail } from '@/lib/api/client'
 import { fmtDateTime, fmtPct, fmtScore, fmtTime, fmtUsd } from '@/lib/format'
 import { useUi } from '@/lib/stores/ui'
+import { isUnavailable, ReasoningUnavailablePanel } from '@/components/primitives/ReasoningUnavailable'
 
 const DISMISS_REASONS = [
   'not a violation in this context',
@@ -63,8 +64,9 @@ export function IncidentDrawer({
 
   if (!incident) return null
 
+  const pkg = isUnavailable(data) ? null : data
   const boardItems: LightboxItem[] =
-    data?.board.map((tile) => ({
+    pkg?.board.map((tile) => ({
       id: tile.observation_id,
       label: `${tile.label} · ${tile.kind}`,
       t: tile.t,
@@ -147,12 +149,16 @@ export function IncidentDrawer({
           <div className="p-3">
             <LoadingBlocks rows={7} height={44} />
           </div>
-        ) : data ? (
+        ) : isUnavailable(data) ? (
+          <div className="p-3">
+            <ReasoningUnavailablePanel detail={data.detail} />
+          </div>
+        ) : pkg ? (
           <>
             <section className="border-b border-[var(--line-0)] px-3 py-3">
               <Overline>evidence board</Overline>
               <div className="mt-2 grid grid-cols-3 gap-1">
-                {data.board.map((tile, i) => (
+                {pkg.board.map((tile, i) => (
                   <button
                     key={tile.observation_id}
                     type="button"
@@ -172,12 +178,12 @@ export function IncidentDrawer({
               </div>
             </section>
 
-            <Collapsible title="scene understanding" right={<span className="mono text-[11px] text-[var(--ink-3)]">{data.scene.model}</span>}>
-              <p className="text-[12.5px] leading-[1.35] text-[var(--ink-1)]">{data.scene.summary}</p>
+            <Collapsible title="scene understanding" right={<span className="mono text-[11px] text-[var(--ink-3)]">{pkg.scene.model}</span>}>
+              <p className="text-[12.5px] leading-[1.35] text-[var(--ink-1)]">{pkg.scene.summary}</p>
               <div className="mt-2">
                 <Overline>actors</Overline>
                 <ul className="mt-1">
-                  {data.scene.actors.map((actor) => (
+                  {pkg.scene.actors.map((actor) => (
                     <li key={actor.ref} className="flex items-baseline gap-2 border-b border-[var(--line-0)] py-1 last:border-b-0">
                       <span className="mono text-[11px] text-[var(--ink-3)]">{actor.kind}</span>
                       <span className="flex-1 text-[12.5px] text-[var(--ink-1)]">{actor.descriptor}</span>
@@ -188,78 +194,78 @@ export function IncidentDrawer({
                   ))}
                 </ul>
               </div>
-              {data.scene.violation_assessment ? (
+              {pkg.scene.violation_assessment ? (
                 <div className="mt-2">
                   <Overline>violation assessment</Overline>
                   <ul className="mt-1">
-                    <ClaimLine claim={data.scene.violation_assessment} onEvidence={showEvidence} />
+                    <ClaimLine claim={pkg.scene.violation_assessment} onEvidence={showEvidence} />
                   </ul>
                 </div>
               ) : null}
-              {data.scene.hazards.length > 0 ? (
+              {pkg.scene.hazards.length > 0 ? (
                 <div className="mt-2">
                   <Overline>hazards</Overline>
                   <ul className="mt-1">
-                    {data.scene.hazards.map((h, i) => (
+                    {pkg.scene.hazards.map((h, i) => (
                       <ClaimLine key={i} claim={h} onEvidence={showEvidence} />
                     ))}
                   </ul>
                 </div>
               ) : null}
-              {data.scene.intent_hypotheses.length > 0 ? (
+              {pkg.scene.intent_hypotheses.length > 0 ? (
                 <div className="mt-2">
                   <Overline>intent hypotheses, not findings</Overline>
                   <ul className="mt-1">
-                    {data.scene.intent_hypotheses.map((h, i) => (
+                    {pkg.scene.intent_hypotheses.map((h, i) => (
                       <ClaimLine key={i} claim={h} onEvidence={showEvidence} />
                     ))}
                   </ul>
                 </div>
               ) : null}
-              {!data.scene.trigger_agreement ? (
+              {!pkg.scene.trigger_agreement ? (
                 <p className="mono mt-2 text-[11px]" style={{ color: 'var(--medium)' }}>
                   the scene pass disagrees with the edge trigger. this package is flagged for review.
                 </p>
               ) : null}
             </Collapsible>
 
-            <Collapsible title="context assessment" right={<span className="mono text-[11px] text-[var(--ink-3)]">{data.context.model}</span>}>
+            <Collapsible title="context assessment" right={<span className="mono text-[11px] text-[var(--ink-3)]">{pkg.context.model}</span>}>
               <dl className="mono mb-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
                 <div className="flex justify-between">
                   <dt className="text-[var(--ink-2)]">normalcy</dt>
-                  <dd className="text-[var(--ink-0)]">{fmtScore(data.context.normalcy)}</dd>
+                  <dd className="text-[var(--ink-0)]">{fmtScore(pkg.context.normalcy)}</dd>
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-[var(--ink-2)]">disposition</dt>
-                  <dd className="text-[var(--ink-0)]">{data.context.disposition}</dd>
+                  <dd className="text-[var(--ink-0)]">{pkg.context.disposition}</dd>
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-[var(--ink-2)]">permitted</dt>
-                  <dd className="text-[var(--ink-0)]">{data.context.permitted_activity ? 'yes' : 'no'}</dd>
+                  <dd className="text-[var(--ink-0)]">{pkg.context.permitted_activity ? 'yes' : 'no'}</dd>
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-[var(--ink-2)]">human review</dt>
-                  <dd style={{ color: data.context.needs_human_review ? 'var(--medium)' : 'var(--ink-0)' }}>
-                    {data.context.needs_human_review ? 'required' : 'not required'}
+                  <dd style={{ color: pkg.context.needs_human_review ? 'var(--medium)' : 'var(--ink-0)' }}>
+                    {pkg.context.needs_human_review ? 'required' : 'not required'}
                   </dd>
                 </div>
               </dl>
 
               <Overline>causal chain</Overline>
               <ol className="mono mt-1 mb-2 flex flex-wrap items-center gap-1 text-[12.5px] text-[var(--ink-1)]">
-                {data.context.causal_chain.map((step, i) => (
+                {pkg.context.causal_chain.map((step, i) => (
                   <li key={i} className="flex items-center gap-1">
                     <span className="border border-[var(--line-0)] px-1" style={{ borderRadius: 'var(--radius-chip)' }}>
                       {step}
                     </span>
-                    {i < data.context.causal_chain.length - 1 ? <Glyph name="chevron-e" size={10} /> : null}
+                    {i < pkg.context.causal_chain.length - 1 ? <Glyph name="chevron-e" size={10} /> : null}
                   </li>
                 ))}
               </ol>
 
               <Overline>contributing factors</Overline>
               <ul className="mt-1">
-                {data.context.contributing_factors.map((c, i) => (
+                {pkg.context.contributing_factors.map((c, i) => (
                   <ClaimLine key={i} claim={c} onEvidence={showEvidence} />
                 ))}
               </ul>
@@ -267,25 +273,25 @@ export function IncidentDrawer({
               <div className="mt-2">
                 <Overline>what happens next if nobody acts</Overline>
                 <ul className="mt-1">
-                  <ClaimLine claim={data.context.what_happens_next} onEvidence={showEvidence} />
+                  <ClaimLine claim={pkg.context.what_happens_next} onEvidence={showEvidence} />
                 </ul>
               </div>
             </Collapsible>
 
             <Collapsible title="severity" defaultOpen>
-              <StackedSeverityBar components={data.severity.components} score={data.severity.score} />
+              <StackedSeverityBar components={pkg.severity.components} score={pkg.severity.score} />
               <p className="mono mt-2 text-[11px] text-[var(--ink-3)]">
-                weights from the {data.severity.zone_profile}. amplifiers are bounded model outputs; the arithmetic is code.
+                weights from the {pkg.severity.zone_profile}. amplifiers are bounded model outputs; the arithmetic is code.
               </p>
               <div className="mt-2">
                 <ConfidenceInterval value={incident.css.value} lo={incident.css.lo} hi={incident.css.hi} />
               </div>
             </Collapsible>
 
-            {data.legal.length > 0 ? (
+            {pkg.legal.length > 0 ? (
               <Collapsible title="legal mapping" defaultOpen={false}>
                 <ul className="flex flex-col gap-2">
-                  {data.legal.map((l, i) => (
+                  {pkg.legal.map((l, i) => (
                     <li key={i} className="flex flex-col gap-1 border-b border-[var(--line-0)] pb-2 last:border-b-0">
                       <span className="mono flex items-center gap-2 text-[12.5px] text-[var(--ink-0)]">
                         {l.statute} <span className="text-[var(--ink-2)]">s.{l.section}</span>
@@ -303,19 +309,19 @@ export function IncidentDrawer({
               </Collapsible>
             ) : null}
 
-            {data.routing ? (
+            {pkg.routing ? (
               <Collapsible title="routing" defaultOpen>
                 <div className="flex items-center gap-2">
                   <Glyph name="department" size={14} />
-                  <span className="text-[12.5px] text-[var(--ink-0)]">{data.routing.department_label}</span>
+                  <span className="text-[12.5px] text-[var(--ink-0)]">{pkg.routing.department_label}</span>
                   <span className="mono ml-auto text-[11px] text-[var(--ink-2)]">sla</span>
-                  <SLACountdown dueAt={data.routing.sla_due_at} slaSeconds={data.routing.sla_seconds} />
+                  <SLACountdown dueAt={pkg.routing.sla_due_at} slaSeconds={pkg.routing.sla_seconds} />
                 </div>
-                <p className="mt-2 text-[12.5px] text-[var(--ink-1)]">{data.routing.action_line}</p>
+                <p className="mt-2 text-[12.5px] text-[var(--ink-1)]">{pkg.routing.action_line}</p>
                 <div className="mt-2">
                   <Overline>channel receipts</Overline>
                   <ul className="mono mt-1 flex flex-col gap-0.5 text-[11px]">
-                    {data.routing.channels.map((c, i) => (
+                    {pkg.routing.channels.map((c, i) => (
                       <li key={i} className="flex items-center gap-2">
                         <span className="w-[68px] text-[var(--ink-1)]">{c.channel}</span>
                         <span className="text-[var(--ink-2)]">sent {c.sent_at ? fmtTime(c.sent_at, { ms: false }) : '--'}</span>
@@ -332,22 +338,22 @@ export function IncidentDrawer({
 
             <Collapsible title="package quality" defaultOpen={false}>
               <dl className="mono grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-                <Stat label="coverage" value={fmtPct(data.quality.coverage)} />
-                <Stat label="sync grade" value={data.quality.sync_grade} />
-                <Stat label="citation validity" value={fmtPct(data.quality.citation_validity, 1)} />
-                <Stat label="calibration" value={`${data.quality.calibration_uncertainty_m} m`} />
-                <Stat label="identity confidence" value={fmtScore(data.quality.identity_confidence)} />
+                <Stat label="coverage" value={fmtPct(pkg.quality.coverage)} />
+                <Stat label="sync grade" value={pkg.quality.sync_grade} />
+                <Stat label="citation validity" value={fmtPct(pkg.quality.citation_validity, 1)} />
+                <Stat label="calibration" value={`${pkg.quality.calibration_uncertainty_m} m`} />
+                <Stat label="identity confidence" value={fmtScore(pkg.quality.identity_confidence)} />
                 <Stat
                   label="authenticity"
-                  value={`${data.quality.authenticity.verified}v ${data.quality.authenticity.inconsistent}x`}
+                  value={`${pkg.quality.authenticity.verified}v ${pkg.quality.authenticity.inconsistent}x`}
                 />
               </dl>
               <div className="mt-2">
                 <Overline>guard</Overline>
-                <p className="mono mt-1 text-[11px]" style={{ color: data.guard.verdict === 'pass' ? 'var(--ok)' : 'var(--medium)' }}>
-                  {data.guard.verdict} · {data.guard.policy_version}
+                <p className="mono mt-1 text-[11px]" style={{ color: pkg.guard.verdict === 'pass' ? 'var(--ok)' : 'var(--medium)' }}>
+                  {pkg.guard.verdict} · {pkg.guard.policy_version}
                 </p>
-                {data.guard.findings.map((f, i) => (
+                {pkg.guard.findings.map((f, i) => (
                   <p key={i} className="mt-1 text-[11px] text-[var(--ink-2)]">
                     {f.rule}: {f.detail}
                   </p>
@@ -367,7 +373,7 @@ export function IncidentDrawer({
                   </tr>
                 </thead>
                 <tbody className="mono text-[11px]">
-                  {data.model_trace.map((row, i) => (
+                  {pkg.model_trace.map((row, i) => (
                     <tr key={i} className="border-t border-[var(--line-0)]">
                       <td className="py-1 text-[var(--ink-1)]">{row.role}</td>
                       <td className="py-1 text-[var(--ink-2)]">
@@ -387,7 +393,7 @@ export function IncidentDrawer({
                       total
                     </td>
                     <td className="py-1 text-right text-[var(--ink-0)]">
-                      {fmtUsd(data.model_trace.reduce((s, r) => s + r.cost_usd, 0), 4)}
+                      {fmtUsd(pkg.model_trace.reduce((s, r) => s + r.cost_usd, 0), 4)}
                     </td>
                   </tr>
                 </tbody>
@@ -397,7 +403,7 @@ export function IncidentDrawer({
             <div className="px-3 py-3">
               <button
                 type="button"
-                onClick={() => openCustody(data.board[0]?.observation_id ?? incident.incident_id)}
+                onClick={() => openCustody(pkg.board[0]?.observation_id ?? incident.incident_id)}
                 className="mono step flex items-center gap-1.5 text-[12.5px] text-[var(--ink-2)] hover:text-[var(--ink-0)]"
               >
                 <Glyph name="custody" size={12} />

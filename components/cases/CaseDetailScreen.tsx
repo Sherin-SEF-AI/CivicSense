@@ -51,6 +51,36 @@ export function CaseDetailScreen({ caseId }: { caseId: string }) {
   const [recipient, setRecipient] = useState<RecipientClass>('department')
   const [note, setNote] = useState('')
   const [certificate, setCertificate] = useState({ issuedBy: '', role: 'person in charge of the computer output', device: '' })
+  const [recipientName, setRecipientName] = useState('')
+
+  const bundleMutation = useMutation({
+    mutationFn: () => api.createBundle(caseId, recipient, recipientName.trim()),
+    onSuccess: async (updated) => {
+      await qc.invalidateQueries({ queryKey: qk.cases.all() })
+      const created = updated.bundles[0]
+      toast({
+        tone: 'ok',
+        text: `disclosure bundle generated for ${recipient}`,
+        detail: created ? `${created.evidence_ids.length} items, manifest ${created.manifest_hash.slice(0, 12)}` : '',
+      })
+      setRecipientName('')
+    },
+    onError: (error) => toast({ tone: 'error', text: 'could not generate the bundle', detail: errorDetail(error) }),
+  })
+
+  const certificateMutation = useMutation({
+    mutationFn: () =>
+      api.issueCertificate(caseId, {
+        issued_by: certificate.issuedBy.trim(),
+        role: certificate.role.trim(),
+        device_particulars: certificate.device.trim(),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: qk.cases.all() })
+      toast({ tone: 'ok', text: 'certificate drafted', detail: 'counsel confirmation is still required before issue' })
+    },
+    onError: (error) => toast({ tone: 'error', text: 'could not draft the certificate', detail: errorDetail(error) }),
+  })
 
   const caseQuery = useQuery({
     queryKey: qk.cases.detail(caseId),
@@ -351,32 +381,45 @@ export function CaseDetailScreen({ caseId }: { caseId: string }) {
 
               <div className="mt-3">
                 <Overline>preview, original beside redacted</Overline>
-                <div className="mt-1.5 grid grid-cols-2 gap-2">
-                  <figure className="m-0">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src="/media/frames/cam-2.jpg" alt="original" className="w-full border border-[var(--line-0)]" />
-                    <figcaption className="mono mt-1 text-[11px] text-[var(--ink-2)]">original, untouched</figcaption>
-                  </figure>
-                  <figure className="m-0">
-                    <div className="relative">
+                {evidencePreview.length === 0 ? (
+                  <p className="mono mt-1.5 text-[11px] text-[var(--ink-3)]">
+                    no evidence is attached to this case yet, so there is nothing to preview. attach items from the
+                    evidence screen or from an incident.
+                  </p>
+                ) : (
+                  <div className="mt-1.5 grid grid-cols-2 gap-2">
+                    <figure className="m-0">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src="/media/frames/cam-2.jpg" alt="redacted preview" className="w-full border border-[var(--line-0)]" />
-                      <span
-                        aria-hidden
-                        className="absolute"
-                        style={{ left: '14%', top: '52%', width: '22%', height: '14%', background: 'var(--bg-0)' }}
+                      <img
+                        src={`/api/v1/evidence/${evidencePreview[0]}/content?purpose=disclosure%20preview`}
+                        alt="original"
+                        className="w-full border border-[var(--line-0)]"
                       />
-                      <span
-                        aria-hidden
-                        className="absolute"
-                        style={{ left: '52%', top: '48%', width: '18%', height: '12%', background: 'var(--bg-0)' }}
-                      />
-                    </div>
-                    <figcaption className="mono mt-1 text-[11px]" style={{ color: 'var(--medium)' }}>
-                      derivative for {preset.label}
-                    </figcaption>
-                  </figure>
-                </div>
+                      <figcaption className="mono mt-1 text-[11px] text-[var(--ink-2)]">original, untouched</figcaption>
+                    </figure>
+                    <figure className="m-0">
+                      <div className="relative">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`/api/v1/evidence/${evidencePreview[0]}/content?purpose=disclosure%20preview`}
+                          alt="redacted preview"
+                          className="w-full border border-[var(--line-0)]"
+                        />
+                        {/* The preview shows where the preset applies, not a redacted
+                            derivative: the derivative is produced when the bundle is
+                            generated, and carries its own hash. */}
+                        <span
+                          aria-hidden
+                          className="absolute inset-0"
+                          style={{ background: 'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(8,9,11,0.55) 8px, rgba(8,9,11,0.55) 16px)' }}
+                        />
+                      </div>
+                      <figcaption className="mono mt-1 text-[11px]" style={{ color: 'var(--medium)' }}>
+                        {preset.label} preset applies to this item
+                      </figcaption>
+                    </figure>
+                  </div>
+                )}
               </div>
 
               <div className="mono mt-3 flex flex-wrap items-center gap-1">
@@ -393,21 +436,31 @@ export function CaseDetailScreen({ caseId }: { caseId: string }) {
                 ) : null}
               </div>
 
-              <button
-                type="button"
-                onClick={() =>
-                  toast({
-                    tone: 'ok',
-                    text: `disclosure bundle generated for ${preset.label}`,
-                    detail: `${detail.evidence_ids.length} items, ${preset.rules.length} redaction rules, manifest signed`,
-                  })
-                }
-                className="mono step mt-3 flex items-center gap-1.5 border border-[var(--line-1)] px-2 py-1 text-[12.5px] text-[var(--ink-1)] hover:bg-[var(--bg-3)] hover:text-[var(--ink-0)]"
-                style={{ borderRadius: 'var(--radius-chip)' }}
-              >
-                <Glyph name="export" size={12} />
-                generate bundle with manifest
-              </button>
+              <div className="mt-3 flex items-center gap-2">
+                <input
+                  value={recipientName}
+                  onChange={(e) => setRecipientName(e.target.value)}
+                  placeholder="recipient, named"
+                  aria-label="recipient"
+                  className="mono min-w-0 flex-1 border border-[var(--line-1)] bg-[var(--bg-2)] px-2 py-1 text-[12.5px] text-[var(--ink-0)] outline-none placeholder:text-[var(--ink-3)]"
+                  style={{ borderRadius: 'var(--radius-chip)' }}
+                />
+                <button
+                  type="button"
+                  disabled={recipientName.trim() === '' || detail.evidence_ids.length === 0 || bundleMutation.isPending}
+                  onClick={() => bundleMutation.mutate()}
+                  title={
+                    detail.evidence_ids.length === 0
+                      ? 'attach evidence to the case first'
+                      : 'produces a manifest over the included hashes and the redaction rules'
+                  }
+                  className="mono step flex items-center gap-1.5 border border-[var(--line-1)] px-2 py-1 text-[12.5px] text-[var(--ink-1)] hover:bg-[var(--bg-3)] hover:text-[var(--ink-0)] disabled:border-[var(--line-0)] disabled:text-[var(--ink-3)]"
+                  style={{ borderRadius: 'var(--radius-chip)' }}
+                >
+                  <Glyph name="export" size={12} />
+                  generate bundle
+                </button>
+              </div>
             </section>
 
             <section className="border border-[var(--line-0)] bg-[var(--bg-1)] p-3" style={{ borderRadius: 'var(--radius-card)' }}>
@@ -433,11 +486,7 @@ export function CaseDetailScreen({ caseId }: { caseId: string }) {
                   className="mt-2 flex flex-col gap-2"
                   onSubmit={(e) => {
                     e.preventDefault()
-                    toast({
-                      tone: 'ok',
-                      text: 'certificate drafted',
-                      detail: 'counsel confirmation is still required before issue',
-                    })
+                    if (certificate.issuedBy.trim()) certificateMutation.mutate()
                   }}
                 >
                   <LabelledInput
