@@ -120,10 +120,42 @@ export function DataTable<T>({
     })
   }
 
+  /* An empty grid is not a grid. Rendering the role anyway leaves a container
+     that promises rows to a screen reader and has none. */
+  if (sorted.length === 0) {
+    return (
+      <div className="flex h-full min-h-0 flex-col" aria-label={ariaLabel}>
+        <div className="flex flex-none border-b border-[var(--line-0)] bg-[var(--bg-2)]" style={{ minWidth: total }}>
+          {columns.map((c) => (
+            <div
+              key={c.key}
+              className="overline flex items-center px-2 py-1.5"
+              style={{ width: widths[c.key] ?? c.width, flex: 'none' }}
+            >
+              {c.header}
+            </div>
+          ))}
+        </div>
+        <p className="mono px-3 py-6 text-[12.5px] text-[var(--ink-2)]">{emptyLine}</p>
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
+    {/* The header and the rows are one grid. They were two siblings, which left
+        the header row with no grid parent and the grid with no header. The
+        expansion panel below stays outside it, because it is not a row. */}
+    <div
+      role="grid"
+      aria-label={ariaLabel}
+      aria-rowcount={sorted.length + 1}
+      className="flex min-h-0 flex-1 flex-col"
+    >
+      <div role="rowgroup" className="flex-none">
       <div
         role="row"
+        aria-rowindex={1}
         className="flex flex-none border-b border-[var(--line-0)] bg-[var(--bg-2)]"
         style={{ minWidth: total }}
       >
@@ -156,12 +188,11 @@ export function DataTable<T>({
           </div>
         ))}
       </div>
+      </div>
 
-      <div ref={parentRef} className="min-h-0 flex-1 overflow-auto" role="grid" aria-label={ariaLabel} aria-rowcount={sorted.length}>
-        {sorted.length === 0 ? (
-          <p className="mono px-3 py-6 text-[12.5px] text-[var(--ink-2)]">{emptyLine}</p>
-        ) : (
-          <div style={{ height: virtualizer.getTotalSize(), position: 'relative', minWidth: total }}>
+      <div ref={parentRef} className="min-h-0 flex-1 overflow-auto">
+        {(
+          <div role="rowgroup" style={{ height: virtualizer.getTotalSize(), position: 'relative', minWidth: total }}>
             {virtualizer.getVirtualItems().map((virtualRow) => {
               const row = sorted[virtualRow.index]!
               const key = rowKey(row)
@@ -172,6 +203,9 @@ export function DataTable<T>({
                   key={key}
                   data-index={virtualRow.index}
                   role="row"
+                  /* Virtualized rows must announce their real position, not
+                     their position in the handful that happen to be mounted. */
+                  aria-rowindex={virtualRow.index + 2}
                   aria-selected={selected}
                   tabIndex={0}
                   onClick={() => onRowClick?.(row)}
@@ -203,6 +237,7 @@ export function DataTable<T>({
             })}
           </div>
         )}
+      </div>
       </div>
 
       {expandedKey && renderExpanded ? (

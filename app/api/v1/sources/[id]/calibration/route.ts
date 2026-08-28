@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server'
 import { randomUUID } from 'node:crypto'
-import { json, notFound, requires, session } from '../../../_lib/handler'
-import { get, run } from '@/lib/db'
+import { badRequest, json, notFound, requires, session } from '../../../_lib/handler'
+import { audit, get, run } from '@/lib/db'
 import { getSourceRow } from '@/lib/store/sources'
 
 export const runtime = 'nodejs'
@@ -53,4 +53,75 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     },
     202,
   )
+}
+
+/**
+ * The device reporting back.
+ *
+ * This closes the loop the POST above opens. The device sends the homography it
+ * solved and the residual error of that solution in metres, and until it does
+ * the source cannot contribute a ground-plane measurement to anything.
+ *
+ * The residual is stored as reported and never improved on. Every speed and
+ * every conflict metric derived from this source carries it, so a device that
+ * reports an honest 3 metres produces indicative figures and a device that
+ * reports a dishonest 0.1 produces confident ones. That is the reason the
+ * residual is written into the audit trail alongside who supplied it.
+ */
+export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params
+  const user = session(req)
+  const denied = requires(user, 'admin.configure')
+  if (denied) return denied
+
+  const source = getSourceRow(id)
+  if (!source) return notFound('source', id)
+
+  const body = (await req.json()) as {
+    run_id?: string
+    homography?: { matrix?: number[] }
+    residual_m?: number
+  }
+
+  const matrix = body.homography?.matrix
+  if (!Array.isArray(matrix) || matrix.length !== 9 || matrix.some((n) => !Number.isFinite(n))) {
+    return badRequest('invalid_homography', 'expected a nine element ground-plane matrix of finite numbers')
+  }
+  const residual = Number(body.residual_m)
+  if (!Number.isFinite(residual) || residual < 0) {
+    return badRequest('invalid_residual', 'the solution residual in metres is required and cannot be negative')
+  }
+
+  const now = Date.now()
+  run('UPDATE sources SET homography = ?, calibration_residual_m = ?, calibrated_at = ? WHERE source_id = ?', [
+    JSON.stringify({ matrix }),
+    residual,
+    now,
+    id,
+  ])
+  if (body.run_id) {
+    run('UPDATE calibration_runs SET state = ?, residual_m = ?, detail = ? WHERE run_id = ? AND source_id = ?', [
+      'complete',
+      residual,
+      `solved with a residual of ${residual.toFixed(2)} m`,
+      body.run_id,
+      id,
+    ])
+  }
+  run('INSERT INTO source_events (source_id, t, kind, detail) VALUES (?, ?, ?, ?)', [
+    id,
+    now,
+    'calibration',
+    `homography reported with a residual of ${residual.toFixed(2)} m`,
+  ])
+  audit(user.name, 'source.calibrated', `source:${id}`, `residual ${residual.toFixed(2)} m`)
+
+  return json({
+    source_id: id,
+    calibrated_at: now,
+    residual_m: residual,
+    /* Anything above this and the platform will only ever call a derived speed
+       indicative, which is worth saying at the moment of calibration. */
+    measurement_capable: residual <= 1.5,
+  })
 }

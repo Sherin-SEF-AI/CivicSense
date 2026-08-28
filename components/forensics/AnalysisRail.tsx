@@ -1,6 +1,10 @@
 'use client'
 
 import { useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '@/lib/api/resources'
+import { qk } from '@/lib/api/keys'
+import { errorDetail } from '@/lib/api/client'
 import type { ForensicsBundle } from '@/lib/api/schemas'
 import { Glyph, type GlyphName } from '@/components/glyphs'
 import { ScopeChart } from '@/components/data/ScopeChart'
@@ -31,6 +35,36 @@ const CONFLICT_COLOR = {
 export function AnalysisRail({ bundle, onEvidence }: { bundle: ForensicsBundle; onEvidence: (id: string) => void }) {
   const [tab, setTab] = useState<Tab>('kinematics')
   const openCustody = useUi((s) => s.openCustody)
+  const toast = useUi((s) => s.toast)
+  const qc = useQueryClient()
+
+  const refreshBundle = () => void qc.invalidateQueries({ queryKey: qk.forensics.all() })
+
+  const generate = useMutation({
+    mutationFn: () => api.generateHypotheses(bundle.incident_id),
+    onSuccess: (result) => {
+      refreshBundle()
+      toast(
+        result.items.length === 0
+          ? {
+              tone: 'info',
+              text: 'no testable hypothesis was formed',
+              detail: 'either the reasoning layer is unavailable or nothing could be separated with the sources in range',
+            }
+          : { tone: 'ok', text: `${result.items.length} competing explanations formed` },
+      )
+    },
+    onError: (error) => toast({ tone: 'error', text: 'could not form hypotheses', detail: errorDetail(error) }),
+  })
+
+  const pull = useMutation({
+    mutationFn: (requestId: string) => api.pullHypothesisRequest(requestId),
+    onSuccess: (updated) => {
+      refreshBundle()
+      toast({ tone: 'ok', text: `retrieval pulled, posterior now ${updated.posterior.toFixed(2)}` })
+    },
+    onError: (error) => toast({ tone: 'error', text: 'the retrieval failed', detail: errorDetail(error) }),
+  })
 
   return (
     <aside
@@ -224,6 +258,25 @@ export function AnalysisRail({ bundle, onEvidence }: { bundle: ForensicsBundle; 
               the loop forms competing explanations, asks for the observation that would separate them, and stops when
               they separate or the budget runs out.
             </p>
+            <button
+              type="button"
+              onClick={() => generate.mutate()}
+              disabled={generate.isPending}
+              className="mono step self-start border px-2 py-1 text-[11px] disabled:opacity-40"
+              style={{ borderRadius: 'var(--radius-chip)', borderColor: 'var(--live)', color: 'var(--live)' }}
+            >
+              {generate.isPending
+                ? 'forming'
+                : bundle.hypotheses.length === 0
+                  ? 'form competing explanations'
+                  : 'form them again'}
+            </button>
+            {bundle.hypotheses.length === 0 && !generate.isPending ? (
+              <p className="mono text-[11px] text-[var(--ink-3)]">
+                nothing has been proposed for this incident yet. this costs one reasoning call, which is why it is not
+                automatic.
+              </p>
+            ) : null}
             {bundle.hypotheses.map((h) => (
               <section key={h.hypothesis_id} className="border border-[var(--line-0)] p-2" style={{ borderRadius: 'var(--radius-card)' }}>
                 <div className="flex items-start gap-2">
@@ -272,6 +325,18 @@ export function AnalysisRail({ bundle, onEvidence }: { bundle: ForensicsBundle; 
                           {fmtScore(r.delta)}
                         </span>
                       )}
+                      {r.state === 'queued' ? (
+                        <button
+                          type="button"
+                          onClick={() => pull.mutate(r.request_id)}
+                          disabled={pull.isPending}
+                          aria-label={`pull ${r.what} from ${r.source_id}`}
+                          className="mono step border border-[var(--line-1)] px-1.5 py-0.5 text-[11px] text-[var(--ink-2)] disabled:opacity-40"
+                          style={{ borderRadius: 'var(--radius-chip)' }}
+                        >
+                          pull
+                        </button>
+                      ) : null}
                     </li>
                   ))}
                 </ul>

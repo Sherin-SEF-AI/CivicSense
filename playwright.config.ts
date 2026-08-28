@@ -39,9 +39,14 @@ export default defineConfig({
    * endpoints, so it must not write into the deployment's store. reuseExistingServer
    * is off for the same reason: a server already running on the dev database would
    * be the wrong target.
+   *
+   * The store is deleted first. Several specs assert exact counts, and a record
+   * left behind by the previous run fuses with the one this run creates, which
+   * makes those assertions fail for a reason that has nothing to do with the
+   * code under test.
    */
   webServer: {
-    command: 'npm run bootstrap && next dev -p 3112',
+    command: 'rm -rf .e2e && npm run bootstrap && next dev -p 3112',
     url: 'http://localhost:3112/api/v1/system/health',
     reuseExistingServer: false,
     timeout: 180_000,

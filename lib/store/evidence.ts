@@ -1,6 +1,6 @@
 import 'server-only'
 import type { EvidenceItem, EvidenceSearchResult, ParsedQuery } from '@/lib/api/schemas'
-import { all, get } from '@/lib/db'
+import { all, get, run } from '@/lib/db'
 
 /**
  * Evidence search over what has actually been ingested.
@@ -206,4 +206,31 @@ function score(classes: string[], parsed: ParsedQuery): number {
 
 export function evidenceCount(): number {
   return get<{ c: number }>('SELECT COUNT(*) AS c FROM evidence')?.c ?? 0
+}
+
+/**
+ * Re-runs standing searches against one newly arrived observation.
+ *
+ * The query parser is deterministic, so a saved search can be evaluated the
+ * moment evidence lands without another model call. Anything that matches bumps
+ * the counter the evidence screen shows, which is what makes "re-run on new
+ * evidence" a real behaviour rather than a checkbox that stores a preference and
+ * does nothing with it.
+ */
+export function matchSavedSearches(classes: string[], t: number): number {
+  const saved = all<{ saved_search_id: string; query: string }>(
+    'SELECT saved_search_id, query FROM saved_searches WHERE rerun_on_new_evidence = 1',
+  )
+  if (saved.length === 0) return 0
+
+  let hits = 0
+  for (const row of saved) {
+    const parsed = parseQuery(row.query, t)
+    if (parsed.from !== null && t < parsed.from) continue
+    if (parsed.to !== null && t > parsed.to) continue
+    if (score(classes, parsed) < 0.5) continue
+    run('UPDATE saved_searches SET new_hits = new_hits + 1 WHERE saved_search_id = ?', [row.saved_search_id])
+    hits++
+  }
+  return hits
 }

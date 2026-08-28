@@ -84,6 +84,12 @@ export const qk = {
   zones: {
     all: () => ['zones'] as const,
   },
+  savedSearches: {
+    all: () => ['saved-searches'] as const,
+  },
+  hypotheses: {
+    forIncident: (id: string) => ['hypotheses', id] as const,
+  },
   system: {
     health: () => ['system', 'health'] as const,
   },

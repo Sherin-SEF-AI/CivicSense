@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { gridDisk, latLngToCell } from 'h3-js'
 import type { Observation, PayloadKind, SyncQuality } from '@/lib/api/schemas'
 import { all, get, run, tx } from '@/lib/db'
+import { matchSavedSearches } from '@/lib/store/evidence'
 import { getSourceRow, setSourceState } from './sources'
 
 /**
@@ -92,6 +93,10 @@ export function ingestObservation(input: IngestInput): { observation: Observatio
   })
 
   if (source.state !== 'up') setSourceState(input.source_id, 'up', 'observation received')
+
+  /* Standing searches see this the moment it lands, not the next time someone
+     opens the evidence screen. */
+  if (input.content_ref) matchSavedSearches(input.classes ?? [], input.t_start)
 
   return { observation: readObservation(observationId)!, incident_id: null }
 }

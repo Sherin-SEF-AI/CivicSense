@@ -2,6 +2,7 @@ import 'server-only'
 import { cellToLatLng, latLngToCell } from 'h3-js'
 import type { Domain, InterventionOutcome, RiskCell, Warning } from '@/lib/api/schemas'
 import { all, get } from '@/lib/db'
+import { cascadeFor, interventionsFor } from './cascade'
 
 /**
  * Prediction from observed history.
@@ -160,8 +161,13 @@ export function computeWarnings(horizonH: 1 | 6 | 24): Warning[] {
         },
         { key: 'samples', label: 'samples in window', value: String(n), weight: 0.3, trend: 'flat' },
       ],
-      cascade: [],
-      interventions: [],
+      cascade: cascadeFor(sensor.zone_id ?? '', profile.domain),
+      interventions: interventionsFor({
+        zone_id: sensor.zone_id ?? '',
+        zone_label: zone?.label ?? 'outside any configured zone',
+        domain: profile.domain,
+        driven_by_sensor: true,
+      }),
       acknowledged: false,
     })
   }

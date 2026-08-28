@@ -21,6 +21,7 @@ import { CANVAS } from '@/lib/tokens'
 import { useNow } from '@/lib/useNow'
 import { useUi } from '@/lib/stores/ui'
 import { RegisterSource } from './RegisterSource'
+import { Synopsis } from './Synopsis'
 
 const CALIBRATION_STALE_DAYS = 30
 
@@ -341,7 +342,8 @@ export function SourcesScreen() {
                   </dl>
                 </div>
 
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-3">
+                  <Synopsis sourceId={row.source_id} />
                   <Overline>health, last 24 hours</Overline>
                   {detailQuery.isPending || !detailQuery.data ? (
                     <LoadingBlocks rows={2} height={60} />

@@ -74,7 +74,7 @@ export function TransportBar({
           onClick={() => onStep(-1)}
           title="previous frame (,)"
           aria-label="previous frame"
-          className="mono step border border-[var(--line-1)] px-1.5 py-0.5 text-[12.5px] text-[var(--ink-1)] hover:text-[var(--ink-0)]"
+          className="mono step flex min-h-[24px] min-w-[24px] items-center justify-center border border-[var(--line-1)] px-1.5 text-[12.5px] text-[var(--ink-1)] hover:text-[var(--ink-0)]"
           style={{ borderRadius: 'var(--radius-chip)' }}
         >
           ,
@@ -84,7 +84,7 @@ export function TransportBar({
           onClick={() => onStep(1)}
           title="next frame (.)"
           aria-label="next frame"
-          className="mono step border border-[var(--line-1)] px-1.5 py-0.5 text-[12.5px] text-[var(--ink-1)] hover:text-[var(--ink-0)]"
+          className="mono step flex min-h-[24px] min-w-[24px] items-center justify-center border border-[var(--line-1)] px-1.5 text-[12.5px] text-[var(--ink-1)] hover:text-[var(--ink-0)]"
           style={{ borderRadius: 'var(--radius-chip)' }}
         >
           .
@@ -110,7 +110,7 @@ export function TransportBar({
               setRate(r as PlaybackRate)
               clock.setRate(r)
             }}
-            className="mono step border px-1 py-0.5 text-[11px]"
+            className="mono step flex min-h-[24px] min-w-[24px] items-center justify-center border px-1 text-[11px]"
             style={{
               borderRadius: 'var(--radius-chip)',
               borderColor: rate === r ? 'var(--live)' : 'var(--line-0)',

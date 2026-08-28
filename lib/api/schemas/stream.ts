@@ -81,6 +81,24 @@ export const STREAM_TOPICS = [
 ] as const
 export type StreamTopic = (typeof STREAM_TOPICS)[number]
 
+/**
+ * Every event name the wire can carry.
+ *
+ * Derived from the map below rather than written twice, so a new event type
+ * cannot be added to the server without the client learning to listen for it.
+ */
+export const STREAM_EVENT_TYPES = [
+  'incident.created',
+  'incident.updated',
+  'pre_alert.raised',
+  'pre_alert.cleared',
+  'warning.raised',
+  'source.health',
+  'patrol.position',
+  'spend.tick',
+  'counts',
+] as const satisfies readonly StreamEventType[]
+
 export const TOPIC_OF: Record<StreamEventType, StreamTopic> = {
   'incident.created': 'incident',
   'incident.updated': 'incident',

@@ -157,7 +157,7 @@ export interface CallResult<T> {
 }
 
 interface CompletionResponse {
-  choices: { message: { content: string } }[]
+  choices: { message: { content: string }; finish_reason?: string }[]
   usage?: { prompt_tokens: number; completion_tokens: number }
   model?: string
 }
@@ -258,6 +258,20 @@ export async function call<T>(options: CallOptions): Promise<CallResult<T>> {
       const tokensOut = payload.usage?.completion_tokens ?? 0
       const costUsd =
         (tokensIn / 1_000_000) * config.priceIn + (tokensOut / 1_000_000) * config.priceOut
+
+      /* A response that ran out of tokens is not a success. Recording it as one
+         puts a green dot on the role health strip for a call that produced
+         nothing usable, and hides the one thing that would explain it: the cap
+         is too low for this prompt. */
+      const finish = payload.choices[0]?.finish_reason
+      if (finish === 'length') {
+        const truncated = new GroqCallFailed(
+          200,
+          `the model stopped at the ${options.maxTokens ?? 2048} token cap with an incomplete response`,
+        )
+        record(options, model, tokensIn, tokensOut, costUsd, latencyMs, index > 0 ? chain[0]! : null, false, truncated.message)
+        throw truncated
+      }
 
       record(options, model, tokensIn, tokensOut, costUsd, latencyMs, index > 0 ? chain[0]! : null, true, null)
 

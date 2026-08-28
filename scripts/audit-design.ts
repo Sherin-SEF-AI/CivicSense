@@ -16,11 +16,13 @@ const SKIP = new Set(['node_modules', '.next', '.git', 'public', 'data', '.osm-c
 /* tokens.css is the palette. lib/tokens.ts mirrors it for canvas and map
    expressions, neither of which can read a CSS variable. offline.ts carries its
    own copy on purpose: an exported bundle has to open with no stylesheet from
-   this application at all. */
+   this application at all, and the disclosure bundle prints on paper, so it is
+   the one document in the product with a light palette. */
 const HEX_ALLOWED = new Set([
   'styles/tokens.css',
   'lib/tokens.ts',
   'lib/export/offline.ts',
+  'lib/export/disclosure.ts',
   'app/icon.svg',
   /* The browser theme-color meta needs a literal; it is chrome, not interface. */
   'app/layout.tsx',

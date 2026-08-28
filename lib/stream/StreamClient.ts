@@ -2,7 +2,7 @@
 
 import type { QueryClient } from '@tanstack/react-query'
 import type { IncidentSummary, PreAlert, PriorityBand, StreamEvent, StreamTopic } from '@/lib/api/schemas'
-import { StreamEventSchema } from '@/lib/api/schemas'
+import { PreAlertSchema, STREAM_EVENT_TYPES, StreamEventSchema } from '@/lib/api/schemas'
 import { qk } from '@/lib/api/keys'
 import { API_BASE } from '@/lib/env'
 
@@ -57,10 +57,35 @@ export class StreamClient {
   /** Reference counted so React strict mode's double effect does not open two. */
   connect(): () => void {
     this.refCount += 1
-    if (this.refCount === 1) this.open()
+    if (this.refCount === 1) {
+      this.open()
+      void this.hydratePreAlerts()
+    }
     return () => {
       this.refCount -= 1
       if (this.refCount === 0) this.close()
+    }
+  }
+
+  /**
+   * Alerts raised before this console connected.
+   *
+   * The stream only carries what happens from now on, and an operator arriving
+   * at a screen mid-event needs to see the banner that is already live rather
+   * than wait for the next one.
+   */
+  private async hydratePreAlerts(): Promise<void> {
+    try {
+      const response = await fetch(`${API_BASE}/pre-alerts`, { cache: 'no-store' })
+      if (!response.ok) return
+      const body = (await response.json()) as { items?: unknown }
+      const parsed = PreAlertSchema.array().safeParse(body.items ?? [])
+      if (!parsed.success || parsed.data.length === 0) return
+      const known = new Set(this.preAlerts.map((p) => p.pre_alert_id))
+      this.preAlerts = [...this.preAlerts, ...parsed.data.filter((p) => !known.has(p.pre_alert_id))].slice(0, 4)
+      this.emitPreAlerts()
+    } catch {
+      /* The banner is an enhancement over the stream, not a dependency of it. */
     }
   }
 
@@ -105,6 +130,14 @@ export class StreamClient {
       this.setState('live')
     }
 
+    /* Every frame the bus writes carries a named `event:` field, and onmessage
+       only fires for frames without one. Listening on onmessage alone meant the
+       console held an open connection that delivered nothing: no incident
+       updates, no counts, no pre-alerts. Each name is attached explicitly, and
+       onmessage stays as the fallback for an unnamed frame. */
+    for (const type of STREAM_EVENT_TYPES) {
+      source.addEventListener(type, (message) => this.handleRaw((message as MessageEvent<string>).data))
+    }
     source.onmessage = (message) => this.handleRaw(message.data)
 
     source.onerror = () => {

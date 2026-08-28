@@ -3,6 +3,8 @@ import type { ForensicsBundle, MediaSegment, PlaybackSource, TimelineEntry } fro
 import { all, get } from '@/lib/db'
 import { observationsForIncident } from './observations'
 import { getIncidentRow } from './incidents'
+import { conflictsForIncident, entitiesForIncident, kinematicsForIncident } from './tracks'
+import { hypothesesForIncident } from './hypotheses'
 
 /**
  * The forensic bundle, assembled from the observations attached to an incident.
@@ -171,13 +173,13 @@ export function buildForensics(incidentId: string, investigationFlag: boolean): 
         evidence_id: o.content_ref,
       })),
     timeline,
-    /* Kinematics require calibrated ground-plane tracks from the edge. Until a
-       source reports them there is nothing to measure, and an empty table is
-       the honest answer. */
-    kinematics: [],
-    conflicts: [],
+    /* Measured from ground-plane tracks a calibrated device reported. A source
+       that never reports tracks contributes nothing here, and an empty table is
+       the honest answer rather than an estimate from pixels. */
+    kinematics: kinematicsForIncident(incidentId),
+    conflicts: conflictsForIncident(incidentId),
     causal: pkg?.causal ?? { nodes: [], edges: [], root_causes: [] },
-    hypotheses: [],
+    hypotheses: hypothesesForIncident(incidentId),
     authenticity: tree.map((node) => ({
       evidence_id: node.evidence_id,
       verdict: node.authenticity,
@@ -201,7 +203,7 @@ export function buildForensics(incidentId: string, investigationFlag: boolean): 
       hash: node.hash,
       device_signature: null,
     })),
-    entities: [],
+    entities: entitiesForIncident(incidentId, investigationFlag),
     investigation_flag: investigationFlag,
   }
 }

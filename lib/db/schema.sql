@@ -343,6 +343,7 @@ CREATE TABLE IF NOT EXISTS calibration_runs (
 CREATE TABLE IF NOT EXISTS interventions_applied (
   outcome_id        TEXT PRIMARY KEY,
   intervention_label TEXT NOT NULL,
+  kind              TEXT NOT NULL DEFAULT '',
   zone_label        TEXT NOT NULL,
   domain            TEXT NOT NULL,
   applied_at        INTEGER NOT NULL,
@@ -403,4 +404,85 @@ CREATE TABLE IF NOT EXISTS queries (
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
+);
+
+-- Life-safety pre-alerts. Raised by the deterministic rules before any model
+-- runs, and cleared when the understanding pass supersedes them.
+CREATE TABLE IF NOT EXISTS pre_alerts (
+  pre_alert_id  TEXT PRIMARY KEY,
+  incident_id   TEXT,
+  source_id     TEXT NOT NULL DEFAULT '',
+  domain        TEXT NOT NULL,
+  trigger       TEXT NOT NULL,
+  headline      TEXT NOT NULL,
+  lat           REAL NOT NULL,
+  lon           REAL NOT NULL,
+  zone_label    TEXT NOT NULL,
+  detected_at   INTEGER NOT NULL,
+  raised_at     INTEGER NOT NULL,
+  elapsed_ms    INTEGER NOT NULL,
+  corroborating INTEGER NOT NULL DEFAULT 1,
+  superseded_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_pre_alerts_open ON pre_alerts(superseded_at, raised_at DESC);
+
+-- Entity references seen across observations, so a dossier can be assembled.
+CREATE TABLE IF NOT EXISTS entities (
+  entity_ref   TEXT PRIMARY KEY,
+  kind         TEXT NOT NULL,
+  descriptor   TEXT NOT NULL,
+  plate_hash   TEXT,
+  first_seen   INTEGER NOT NULL,
+  last_seen    INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS entity_sightings (
+  entity_ref     TEXT NOT NULL REFERENCES entities(entity_ref) ON DELETE CASCADE,
+  observation_id TEXT NOT NULL,
+  incident_id    TEXT,
+  source_id      TEXT NOT NULL,
+  t              INTEGER NOT NULL,
+  lat            REAL,
+  lon            REAL,
+  PRIMARY KEY (entity_ref, observation_id)
+);
+CREATE INDEX IF NOT EXISTS idx_sightings_incident ON entity_sightings(incident_id);
+
+-- Ground-plane tracks reported by a calibrated edge device. Kinematics are
+-- measured from these; without them the platform has nothing to measure.
+CREATE TABLE IF NOT EXISTS tracks (
+  track_id       TEXT NOT NULL,
+  observation_id TEXT NOT NULL,
+  incident_id    TEXT,
+  source_id      TEXT NOT NULL,
+  entity_ref     TEXT,
+  descriptor     TEXT NOT NULL DEFAULT '',
+  validated_against_can INTEGER NOT NULL DEFAULT 0,
+  samples        TEXT NOT NULL,
+  PRIMARY KEY (track_id, observation_id)
+);
+CREATE INDEX IF NOT EXISTS idx_tracks_incident ON tracks(incident_id);
+
+-- The active investigation loop: competing explanations and what was asked for
+-- to separate them.
+CREATE TABLE IF NOT EXISTS hypotheses (
+  hypothesis_id TEXT PRIMARY KEY,
+  incident_id   TEXT NOT NULL REFERENCES incidents(incident_id) ON DELETE CASCADE,
+  statement     TEXT NOT NULL,
+  prior         REAL NOT NULL,
+  posterior     REAL NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'open',
+  evidence_ids  TEXT NOT NULL DEFAULT '[]',
+  created_at    INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS hypothesis_requests (
+  request_id    TEXT PRIMARY KEY,
+  hypothesis_id TEXT NOT NULL REFERENCES hypotheses(hypothesis_id) ON DELETE CASCADE,
+  what          TEXT NOT NULL,
+  source_id     TEXT NOT NULL,
+  window_from   INTEGER NOT NULL,
+  window_to     INTEGER NOT NULL,
+  state         TEXT NOT NULL DEFAULT 'queued',
+  delta         REAL
 );

@@ -198,9 +198,16 @@ export function Meter({
 }) {
   const ratio = max <= 0 ? 0 : Math.min(1.15, value / max)
   const color = ratio >= 1 ? 'var(--critical)' : ratio >= danger ? 'var(--high)' : 'var(--ok)'
+  /* A bar with a label is a meter, and saying so gives a screen reader the
+     number rather than only the sentence wrapped around it. */
   return (
     <span
+      role="meter"
       aria-label={label}
+      aria-valuenow={Math.round(value * 100) / 100}
+      aria-valuemin={0}
+      aria-valuemax={max}
+      aria-valuetext={label}
       title={label ?? `${fmtPct(ratio)} of budget`}
       style={{ display: 'inline-block', width, height: 6, border: '1px solid var(--line-1)', position: 'relative' }}
     >

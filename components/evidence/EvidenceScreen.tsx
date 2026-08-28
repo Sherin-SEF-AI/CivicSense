@@ -10,6 +10,7 @@ import { EmptyState, ErrorPanel, LoadingBlocks } from '@/components/primitives/p
 import { HashChip, Overline } from '@/components/primitives/chips'
 import { AuthenticityDot, SourceGlyph } from '@/components/primitives/indicators'
 import { Lightbox, type LightboxItem } from '@/components/primitives/Lightbox'
+import { SavedSearches } from './SavedSearches'
 import { qk } from '@/lib/api/keys'
 import { api } from '@/lib/api/resources'
 import { errorCode, errorDetail } from '@/lib/api/client'
@@ -62,8 +63,10 @@ export function EvidenceScreen() {
 
   const saveMutation = useMutation({
     mutationFn: () => api.saveSearch(submitted.slice(0, 64), submitted, true),
-    onSuccess: (record) =>
-      toast({ tone: 'ok', text: 'search saved', detail: `${record.name}, re-runs when new evidence arrives` }),
+    onSuccess: (record) => {
+      void qc.invalidateQueries({ queryKey: qk.savedSearches.all() })
+      toast({ tone: 'ok', text: 'search saved', detail: `${record.name}, re-runs when new evidence arrives` })
+    },
     onError: (error) => toast({ tone: 'error', text: 'could not save the search', detail: errorDetail(error) }),
   })
 
@@ -282,7 +285,15 @@ export function EvidenceScreen() {
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-3">
         {submitted.trim() === '' ? (
-          <EmptyState line="no query yet. describe what you are looking for and the parsed query appears before it runs." glyph="search" />
+          <>
+            <EmptyState line="no query yet. describe what you are looking for and the parsed query appears before it runs." glyph="search" />
+            <SavedSearches
+              onRun={(q) => {
+                setDraft(q)
+                submit(q)
+              }}
+            />
+          </>
         ) : searchQuery.error ? (
           <ErrorPanel
             code={errorCode(searchQuery.error)}

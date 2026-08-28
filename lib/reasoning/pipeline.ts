@@ -14,6 +14,7 @@ import { SITUATION_BY_KEY } from '@/lib/config/situations'
 import { call, GroqUnconfigured, isConfigured, type Message } from '@/lib/groq/client'
 import { observationsForIncident } from '@/lib/store/observations'
 import { getIncident, getIncidentRow, rescore, storePackage } from '@/lib/store/incidents'
+import { supersedePreAlert } from '@/lib/store/prealerts'
 import { computeSeverity, SLA_SECONDS } from '@/lib/store/severity'
 import { CONTEXT_SCHEMA, GUARD_SCHEMA, LEGAL_SCHEMA, SCENE_SCHEMA } from './schemas'
 
@@ -469,6 +470,8 @@ export async function runPipeline(incidentId: string): Promise<PipelineResult> {
   }
 
   storePackage(incidentId, pkg)
+  /* The banner came from a rule. This is the understanding that replaces it. */
+  supersedePreAlert(incidentId)
   rescore(incidentId)
   return { package: pkg, droppedClaims: dropped, citationValidity }
 }

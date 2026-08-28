@@ -32,7 +32,7 @@ export async function inlineImage(url: string): Promise<string | null> {
 
 const STYLE = `
 :root{--bg:#08090b;--panel:#0e1013;--card:#14171b;--line:#1f242b;--line2:#2a313a;
---ink:#e8eaed;--ink1:#9aa3ad;--ink2:#5c6570;--ink3:#3a4048;
+--ink:#e8eaed;--ink1:#adb4bd;--ink2:#979ca3;--ink3:#83878c;
 --critical:#f85149;--high:#db6d28;--medium:#d29922;--ok:#3fb950;--live:#58a6ff}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.4 system-ui,-apple-system,sans-serif}

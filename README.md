@@ -31,6 +31,16 @@ This repository is a working system, not a demonstration of one.
   itself unavailable and the console says so.
 - **The audit log is real.** Hash chained. `GET /api/v1/admin` returns a verification of the whole
   chain, and the acceptance suite asserts it holds after every test.
+- **The measurements are derived, not asserted.** A calibrated device reports where things were on
+  the ground plane. Speed, acceleration, time to collision and post encroachment time are computed
+  here from those positions, and the error bar on each is carried from the device's calibration
+  residual and its clock synchronisation grade. A figure whose uncertainty is too wide to support a
+  claim is reported as indicative rather than measured, and an uncalibrated device is refused
+  outright instead of having its numbers quietly disclaimed later.
+- **Life-safety alerts go out before the understanding.** A trigger the situation catalogue marks
+  life-safety raises a pre-alert in the same request that delivered the observation, ahead of hashing
+  the media and well ahead of any model call. The banner carries how many milliseconds old the alert
+  already is, and it disappears when a package supersedes it rather than fading out.
 
 And what is not, and cannot be:
 
@@ -143,7 +153,16 @@ npm run audit:design   # design language rules, see below
 npm run e2e            # acceptance suite, needs Google Chrome
 npm run verify         # all four
 npm run build
+
+# The accessibility gate. Runs against a production build, not the dev server,
+# and in the desktop preset, because that is what this product is.
+npm run build && npx next start -p 3115 &
+npm run lighthouse
 ```
+
+Every route scores 100 for accessibility. That number was not free: reaching it turned up a palette
+whose tertiary ink sat at 1.8:1 against the panel, a data grid whose header row had no grid parent,
+and transport controls below the 24 pixel minimum for a pointing device.
 
 ### Rebuilding the basemap
 
@@ -292,6 +311,17 @@ The criteria are executable rather than aspirational. `e2e/` creates its own dat
 ingest endpoint and asserts:
 
 - a registered source lands in the real ward its coordinates fall inside
+- a life-safety trigger raises a pre-alert inside the ingest request, and a routine one does not
+- ground-plane tracks from a calibrated device produce a speed with an interval that brackets it, and
+  the same tracks from a poorly calibrated one are reported as indicative
+- an uncalibrated device is refused when it tries to report tracks
+- every hypothesis the investigation loop forms names a retrieval, from a source that exists, that
+  could separate it from the others; pulling one moves the posteriors in opposite directions
+- a standing search counts matches as evidence arrives rather than when someone opens the screen
+- a zone profile edit persists, an out of range one is refused, and a playbook edit bumps the version
+- the summary export is a real PDF that opens outside the platform, and the disclosure copy removes
+  person actors, marks unverified statutes inadmissible, and lists every removal
+- an incident created after the page loaded appears in the feed with no reload
 - uploaded bytes are hashed, served back, and recompute to the same hash; identical bytes deduplicate
 - a trigger forms an incident, and a second source in the same H3 neighbourhood corroborates it
   rather than creating a second incident
@@ -304,6 +334,7 @@ ingest endpoint and asserts:
 - the map holds its frame budget while panning
 - the audit chain still verifies after all of it
 - no route logs a console error
+- every route scores at least 95 for accessibility against a production build
 
 ## Stack
 

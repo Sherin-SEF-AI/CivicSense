@@ -178,7 +178,7 @@ export function EmptyState({
 /** Static loading blocks matching the final layout. No shimmer anywhere. */
 export function LoadingBlocks({ rows = 6, height = 32 }: { rows?: number; height?: number }) {
   return (
-    <div className="flex flex-col gap-px" aria-busy="true" aria-label="loading">
+    <div role="status" className="flex flex-col gap-px" aria-busy="true" aria-label="loading">
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} style={{ height, background: 'var(--bg-2)' }} />
       ))}

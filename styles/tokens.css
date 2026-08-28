@@ -16,18 +16,24 @@
   --line-0: #1f242b;
   --line-1: #2a313a;
 
-  /* Ink. */
+  /* Ink.
+
+     Four steps, and every one of them readable. The tertiary tone used to sit
+     at 1.8:1 against the panel, which is not a quiet label, it is a hidden one.
+     All four now clear 4.5:1 against the lightest surface they appear on, so
+     the hierarchy is carried by contrast between the steps rather than by
+     pushing the bottom step out of sight. */
   --ink-0: #e8eaed;
-  --ink-1: #9aa3ad;
-  --ink-2: #5c6570;
-  --ink-3: #3a4048;
+  --ink-1: #adb4bd;
+  --ink-2: #979ca3;
+  --ink-3: #83878c;
 
   /* Earned color. Appears only where it encodes state. */
   --critical: #f85149;
   --high: #db6d28;
   --medium: #d29922;
   --low: #8b949e;
-  --info: #6e7681;
+  --info: #818891;
   --ok: #3fb950;
   --live: #58a6ff;
   --violet: #bc8cff;

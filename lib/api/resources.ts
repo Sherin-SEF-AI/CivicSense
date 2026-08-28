@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  HypothesisSchema,
   AnalyticsOverviewSchema,
   SessionSchema,
   SavedSearchRecordSchema,
@@ -111,6 +112,23 @@ export const api = {
     warningId: string,
     body: { intervention_id: string; intervention_label: string; zone_label: string; department: string; lat: number; lon: number },
   ) => request(`/warnings/${encodeURIComponent(warningId)}/task`, TaskingSchema, { method: 'POST', body }),
+
+  hypotheses: (incidentId: string, signal?: AbortSignal) =>
+    request(
+      `/incidents/${encodeURIComponent(incidentId)}/hypotheses`,
+      z.object({ items: z.array(HypothesisSchema), reasoning_available: z.boolean() }),
+      { signal },
+    ),
+
+  generateHypotheses: (incidentId: string) =>
+    request(
+      `/incidents/${encodeURIComponent(incidentId)}/hypotheses`,
+      z.object({ items: z.array(HypothesisSchema), reasoning_available: z.boolean() }),
+      { method: 'POST', body: {} },
+    ),
+
+  pullHypothesisRequest: (requestId: string) =>
+    request(`/hypotheses/requests/${encodeURIComponent(requestId)}`, HypothesisSchema, { method: 'POST', body: {} }),
 
   updateZone: (body: { zone_id: string; kind?: string; sensitivity?: number; label?: string }) =>
     request('/zones', ZoneSchema, { method: 'PATCH', body }),

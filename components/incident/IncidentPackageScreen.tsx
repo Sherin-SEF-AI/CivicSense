@@ -31,6 +31,8 @@ import { fmtDateTime, fmtDuration, fmtPct, fmtScore, fmtTime, fmtUsd } from '@/l
 import { useUi } from '@/lib/stores/ui'
 import { useSelection } from '@/lib/stores/selection'
 import { buildOfflineBundleAsync, downloadText } from '@/lib/export/offline'
+import { renderDisclosureBundle } from '@/lib/export/disclosure'
+import { summaryPdf } from '@/lib/export/summary'
 
 const ADMISSIBILITY_COLOR = {
   met: 'var(--ok)',
@@ -151,6 +153,35 @@ export function IncidentPackageScreen({ incidentId }: { incidentId: string }) {
     })
   }
 
+  /* Three exports, three audiences. The offline bundle is the complete record,
+     the summary is for someone who will never open the console, and the
+     disclosure copy is the one that leaves the organisation. */
+  const exportSummary = () => {
+    const bytes = summaryPdf(pkg, bundle ?? null)
+    const blob = new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'application/pdf' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `civicsense-${incident.incident_id}-summary.pdf`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast({
+      tone: 'ok',
+      text: 'summary exported',
+      detail: bundle ? 'pdf, every claim carries its confidence' : 'pdf without the forensic bundle, which had not loaded',
+    })
+  }
+
+  const exportDisclosure = () => {
+    const html = renderDisclosureBundle(pkg, bundle ?? null, null)
+    downloadText(`civicsense-${incident.incident_id}-disclosure.html`, html, 'text/html')
+    toast({
+      tone: 'info',
+      text: 'disclosure copy exported',
+      detail: 'person actors and dossiers removed, redaction log attached. issue the section 63 certificate from the case screen before serving it.',
+    })
+  }
+
   return (
     <div className="w-full overflow-auto">
       <div className="mx-auto flex max-w-[1240px] flex-col gap-4 px-6 py-4">
@@ -180,6 +211,26 @@ export function IncidentPackageScreen({ incidentId }: { incidentId: string }) {
               >
                 <Glyph name="export" size={12} />
                 offline bundle
+              </button>
+              <button
+                type="button"
+                onClick={exportSummary}
+                className="mono step flex items-center gap-1.5 border border-[var(--line-1)] px-2 py-1 text-[12.5px] text-[var(--ink-1)] hover:bg-[var(--bg-3)] hover:text-[var(--ink-0)]"
+                style={{ borderRadius: 'var(--radius-chip)' }}
+                title="a pdf summary for a reader who will never open the console"
+              >
+                <Glyph name="transcript" size={12} />
+                pdf summary
+              </button>
+              <button
+                type="button"
+                onClick={exportDisclosure}
+                className="mono step flex items-center gap-1.5 border border-[var(--line-1)] px-2 py-1 text-[12.5px] text-[var(--ink-1)] hover:bg-[var(--bg-3)] hover:text-[var(--ink-0)]"
+                style={{ borderRadius: 'var(--radius-chip)' }}
+                title="the copy that leaves the organisation, with a redaction log"
+              >
+                <Glyph name="redaction" size={12} />
+                disclosure copy
               </button>
               <button
                 type="button"

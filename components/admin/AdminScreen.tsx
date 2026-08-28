@@ -5,6 +5,8 @@ import { useQuery } from '@tanstack/react-query'
 import type { AuditEntry, Budget, Playbook, User, Zone } from '@/lib/api/schemas'
 import { Glyph, type GlyphName } from '@/components/glyphs'
 import { DataTable, type Column } from '@/components/data/DataTable'
+import { ZoneEditor } from './ZoneEditor'
+import { PlaybookEditor } from './PlaybookEditor'
 import { MapCanvas } from '@/components/map/MapCanvas'
 import { ErrorPanel, LoadingBlocks } from '@/components/primitives/panels'
 import { HashChip, Overline } from '@/components/primitives/chips'
@@ -28,6 +30,9 @@ const TABS: { key: Tab; label: string; glyph: GlyphName }[] = [
 
 export function AdminScreen() {
   const [tab, setTab] = useState<Tab>('zones')
+  const [editingZone, setEditingZone] = useState<string | null>(null)
+  const [editingPlaybook, setEditingPlaybook] = useState<string | null>(null)
+  const [zoneFilter, setZoneFilter] = useState('')
   const openCustody = useUi((s) => s.openCustody)
 
   const adminQuery = useQuery({ queryKey: qk.admin.all(), queryFn: ({ signal }) => api.admin(signal) })
@@ -56,6 +61,15 @@ export function AdminScreen() {
   }
 
   const data = adminQuery.data
+  const allZones = zonesQuery.data?.items ?? []
+  const needle = zoneFilter.trim().toLowerCase()
+  /* 547 wards is more than a scroll pane is worth, so the list is capped until
+     the operator narrows it. */
+  const visibleZones = (
+    needle === ''
+      ? allZones
+      : allZones.filter((z) => z.label.toLowerCase().includes(needle) || z.zone_id.toLowerCase().includes(needle))
+  ).slice(0, 60)
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -103,8 +117,21 @@ export function AdminScreen() {
                 the sensitivity index and the zone kind together select the severity weight profile, which is why a
                 hospital approach and a residential ward score the same behaviour differently.
               </p>
+              <input
+                value={zoneFilter}
+                onChange={(e) => setZoneFilter(e.target.value)}
+                placeholder="filter zones by name or id"
+                aria-label="filter zones"
+                className="mono mb-2 border border-[var(--line-1)] bg-[var(--bg-0)] px-2 py-1 text-[12.5px] text-[var(--ink-0)]"
+                style={{ borderRadius: 'var(--radius-chip)' }}
+              />
               <ul className="flex flex-col gap-2">
-                {(zonesQuery.data?.items ?? []).map((zone: Zone) => (
+                {visibleZones.map((zone: Zone) =>
+                  editingZone === zone.zone_id ? (
+                    <li key={zone.zone_id}>
+                      <ZoneEditor zone={zone} onClose={() => setEditingZone(null)} />
+                    </li>
+                  ) : (
                   <li
                     key={zone.zone_id}
                     className="flex flex-col gap-1 border border-[var(--line-0)] bg-[var(--bg-2)] p-2"
@@ -115,6 +142,15 @@ export function AdminScreen() {
                       <span className="mono text-[12.5px] text-[var(--ink-0)]">{zone.zone_id}</span>
                       <span className="text-[12.5px] text-[var(--ink-1)]">{zone.label}</span>
                       <span className="mono ml-auto text-[11px] text-[var(--ink-3)]">{zone.kind}</span>
+                      <button
+                        type="button"
+                        onClick={() => setEditingZone(zone.zone_id)}
+                        aria-label={`edit ${zone.label}`}
+                        className="mono step border border-[var(--line-1)] px-1.5 py-0.5 text-[11px] text-[var(--ink-2)]"
+                        style={{ borderRadius: 'var(--radius-chip)' }}
+                      >
+                        edit
+                      </button>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="mono text-[11px] text-[var(--ink-2)]">sensitivity</span>
@@ -134,7 +170,16 @@ export function AdminScreen() {
                       {zone.polygon.length} boundary points · adjacent to {zone.adjacency.length || 'no'} zones
                     </span>
                   </li>
-                ))}
+                  ),
+                )}
+                {visibleZones.length === 0 ? (
+                  <li className="mono text-[11px] text-[var(--ink-3)]">no zone matches that filter</li>
+                ) : null}
+                {allZones.length > visibleZones.length ? (
+                  <li className="mono text-[11px] text-[var(--ink-3)]">
+                    showing {visibleZones.length} of {allZones.length} zones, filter to reach the rest
+                  </li>
+                ) : null}
               </ul>
             </aside>
           </div>
@@ -194,7 +239,10 @@ export function AdminScreen() {
 
         {tab === 'playbooks' ? (
           <div className="flex flex-col gap-3 p-3">
-            {data.playbooks.map((playbook: Playbook) => (
+            {data.playbooks.map((playbook: Playbook) =>
+              editingPlaybook === playbook.playbook_id ? (
+                <PlaybookEditor key={playbook.playbook_id} playbook={playbook} onClose={() => setEditingPlaybook(null)} />
+              ) : (
               <section
                 key={playbook.playbook_id}
                 className="border border-[var(--line-0)] bg-[var(--bg-1)] p-3"
@@ -207,6 +255,15 @@ export function AdminScreen() {
                   <span className="mono text-[11px] text-[var(--ink-3)]">
                     from {playbook.min_priority} · version {playbook.version} · updated {fmtDateTime(playbook.updated_at)}
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => setEditingPlaybook(playbook.playbook_id)}
+                    aria-label={`edit ${playbook.name}`}
+                    className="mono step ml-auto border border-[var(--line-1)] px-2 py-0.5 text-[11px] text-[var(--ink-2)]"
+                    style={{ borderRadius: 'var(--radius-chip)' }}
+                  >
+                    edit
+                  </button>
                 </div>
                 <ol className="mt-2 flex flex-col">
                   {playbook.steps.map((step, i) => (
@@ -233,7 +290,8 @@ export function AdminScreen() {
                   ))}
                 </ol>
               </section>
-            ))}
+              ),
+            )}
           </div>
         ) : null}
 
