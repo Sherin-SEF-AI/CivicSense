@@ -1,0 +1,102 @@
+/*
+ * Operational Materialism: design tokens.
+ *
+ * Dark only in this build. The palette lives on :root so a light theme is a
+ * second scoped block later, and nothing downstream references a raw hex.
+ */
+
+:root {
+  /* Surfaces. Matte, no gradients, no glass. Elevation is a background step. */
+  --bg-0: #08090b;
+  --bg-1: #0e1013;
+  --bg-2: #14171b;
+  --bg-3: #1a1e23;
+
+  /* Lines. The only structural device besides the background step. */
+  --line-0: #1f242b;
+  --line-1: #2a313a;
+
+  /* Ink. */
+  --ink-0: #e8eaed;
+  --ink-1: #9aa3ad;
+  --ink-2: #5c6570;
+  --ink-3: #3a4048;
+
+  /* Earned color. Appears only where it encodes state. */
+  --critical: #f85149;
+  --high: #db6d28;
+  --medium: #d29922;
+  --low: #8b949e;
+  --info: #6e7681;
+  --ok: #3fb950;
+  --live: #58a6ff;
+  --violet: #bc8cff;
+
+  /* Domain hues. 14px glyphs and 2px accents only, never fills. */
+  --domain-traffic: #58a6ff;
+  --domain-waste: #9e6a03;
+  --domain-safety: #f85149;
+  --domain-nuisance: #bc8cff;
+  --domain-infrastructure: #8b949e;
+  --domain-environment: #3fb950;
+  --domain-vehicle: #db6d28;
+  --domain-disaster: #ff7b72;
+
+  /* Type. */
+  --font-ui: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --text-11: 11px;
+  --text-12: 12.5px;
+  --text-13: 13px;
+  --text-14: 14px;
+  --text-16: 16px;
+  --text-20: 20px;
+
+  --leading-tight: 1.2;
+  --leading-body: 1.35;
+
+  /* Space. 8px grid, with 4px and 2px available inside components. */
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 8px;
+  --sp-4: 12px;
+  --sp-5: 16px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --sp-8: 48px;
+
+  /* Shape. Nothing rounder than 4px. */
+  --radius-chip: 2px;
+  --radius-card: 4px;
+
+  /* Density. The comfortable variant only relaxes vertical rhythm. */
+  --row-h: 32px;
+  --control-h: 24px;
+  --pane-pad: 8px;
+
+  /* Motion. Binary: instant, or one 120ms linear step. There is no second duration. */
+  --motion-step: 120ms;
+  --motion-ease: linear;
+
+  /* Chrome. */
+  --rail-w: 44px;
+  --strip-h: 36px;
+  --drawer-w: 400px;
+  --feed-w: 380px;
+
+  --overlay-shadow: 0 2px 8px rgb(0 0 0 / 0.4);
+  --focus-ring: var(--live);
+}
+
+:root[data-density='comfortable'] {
+  --row-h: 40px;
+  --control-h: 28px;
+  --pane-pad: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-step: 0ms;
+  }
+}

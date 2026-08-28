@@ -1,0 +1,11 @@
+node_modules
+.next
+out
+*.tsbuildinfo
+next-env.d.ts
+.env*.local
+test-results
+playwright-report
+
+# Derived from node_modules by scripts/sync-map-worker.mjs on dev and build
+public/vendor

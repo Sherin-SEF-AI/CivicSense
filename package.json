@@ -1,0 +1,47 @@
+{
+  "name": "civicsense",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npm run sync:map && next dev -p 3111",
+    "build": "npm run sync:map && next build",
+    "start": "next start -p 3111",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "glyphs": "tsx scripts/gen-glyph-sprite.ts",
+    "geo": "tsx scripts/gen-geo.ts",
+    "media": "bash scripts/gen-media.sh",
+    "audit:design": "tsx scripts/audit-design.ts",
+    "check:fixtures": "tsx scripts/check-fixtures.ts",
+    "sync:map": "node scripts/sync-map-worker.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@tanstack/react-query": "5.102.8",
+    "@tanstack/react-virtual": "3.14.10",
+    "h3-js": "4.5.0",
+    "hls.js": "1.7.1",
+    "maplibre-gl": "6.6.0",
+    "next": "15.5.24",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "server-only": "^0.0.1",
+    "uplot": "1.6.32",
+    "zod": "4.4.3",
+    "zustand": "5.0.15"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.6",
+    "@playwright/test": "1.57.0",
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "22.18.9",
+    "@types/react": "19.2.8",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.1",
+    "eslint-config-next": "15.5.24",
+    "tailwindcss": "4.3.3",
+    "tsx": "^4.23.12",
+    "typescript": "5.9.3"
+  }
+}
