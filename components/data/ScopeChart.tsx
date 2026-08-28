@@ -95,7 +95,14 @@ export function ScopeChart({
             grid: { stroke: CANVAS.line0, width: 1 },
             ticks: { stroke: CANVAS.line0, width: 1 },
             font: '11px "IBM Plex Mono", monospace',
-            values: (_u, splits) => splits.map((t) => fmtClock(t, 'm')),
+            /* Precision follows the visible span: clock times repeat and stop
+               meaning anything once a chart covers more than a day. */
+            values: (u, splits) => {
+              const span = (splits[splits.length - 1] ?? 0) - (splits[0] ?? 0)
+              const precision = span > 48 * 3600_000 ? 'd' : span > 2 * 3600_000 ? 'h' : 'm'
+              void u
+              return splits.map((t) => fmtClock(t, precision))
+            },
             size: 24,
           },
           {

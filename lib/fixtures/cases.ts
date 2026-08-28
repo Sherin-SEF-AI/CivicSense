@@ -79,7 +79,7 @@ export function buildCases({
                   : recipient === 'public'
                     ? 'open data portal'
                     : 'BBMP Sanitation',
-            created_at: opened + intRange(rnd, 1, 40) * 86400_000,
+            created_at: Math.min(now - 3600_000, opened + intRange(rnd, 1, 40) * 86400_000),
             evidence_ids: evidenceIds.slice(0, intRange(rnd, 2, Math.max(3, evidenceIds.length))),
             redaction_preset: REDACTION_PRESETS[recipient],
             redactions: evidenceIds.slice(0, 3).map((eid) => ({
@@ -106,7 +106,9 @@ export function buildCases({
       evidence_bytes: evidenceCount * intRange(rnd, 900_000, 42_000_000),
       legal_hold: legalHold,
       investigation_flag: investigation,
-      updated_at: opened + intRange(rnd, 1, 60) * 86400_000,
+      /* Clamped: an update stamp drawn forward from the opening date can land
+         after the present, and a case updated tomorrow is not a small blemish. */
+      updated_at: Math.min(now - intRange(rnd, 1, 90) * 60_000, opened + intRange(rnd, 1, 60) * 86400_000),
       incident_ids: linked,
       evidence_ids: evidenceIds,
       notes: Array.from({ length: intRange(rnd, 1, 4) }, (_, k) => ({
@@ -140,7 +142,7 @@ export function buildCases({
       certificate:
         bundles.some((b) => b.certificate_issued)
           ? {
-              issued_at: opened + intRange(rnd, 5, 50) * 86400_000,
+              issued_at: Math.min(now - 7200_000, opened + intRange(rnd, 5, 50) * 86400_000),
               issued_by: pick(rnd, OWNERS),
               role: 'person in charge of the computer output',
               device_particulars: `edge hub HUB-${String(intRange(rnd, 1, 12)).padStart(2, '0')}, evidence vault node vault-01`,
