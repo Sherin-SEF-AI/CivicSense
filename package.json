@@ -18,7 +18,16 @@
     "check:groq": "tsx --conditions react-server --env-file-if-exists=.env.local scripts/check-groq.ts",
     "lighthouse": "node scripts/lighthouse.mjs",
     "test:unit": "tsx --test test/merkle.test.ts",
-    "merkle:vectors": "tsx scripts/gen-merkle-vectors.ts"
+    "merkle:vectors": "tsx scripts/gen-merkle-vectors.ts",
+    "fis:up": "docker compose -f fis/compose.yaml up -d --wait",
+    "fis:down": "docker compose -f fis/compose.yaml down",
+    "fis:reset": "docker compose -f fis/compose.yaml down -v",
+    "fis:logs": "docker compose -f fis/compose.yaml logs -f",
+    "fis:build": "docker build -f fis/containers/base.Dockerfile -t fis-operator-base:dev fis/",
+    "fis:lint": "python3 fis/ci/lint_operators.py",
+    "fis:determinism": "python3 fis/ci/determinism.py",
+    "fis:gate": "docker exec -i civicsense-fis-postgres-1 psql -U fis -d fis -f - < fis/ci/gate.sql",
+    "verify:fis": "npm run fis:lint && npm run fis:build && npm run fis:determinism"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

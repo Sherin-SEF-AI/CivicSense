@@ -1,0 +1,38 @@
+[project]
+name = "fis"
+version = "0.1.0"
+description = "Forensic Intelligence Suite worker and API"
+requires-python = ">=3.12"
+
+# Hard pins. An operator's output is part of an evidence record, so the versions
+# that produced it are part of the record too. Ranges would let a rebuild change
+# a result without changing anything anyone can point at.
+dependencies = [
+  "psycopg[binary]==3.2.10",
+  "redis==5.2.1",
+  "fastapi==0.115.6",
+  "uvicorn[standard]==0.34.0",
+  "pydantic==2.10.6",
+  "python-multipart==0.0.20",
+  "minio==7.2.15",
+  "numpy==2.3.5",
+  "opencv-python-headless==4.13.0.92",
+  "scipy==1.16.3",
+  "scikit-image==0.26.0",
+  "av==17.1.0",
+  "cryptography==46.0.3",
+  "httpx==0.28.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.3.4", "pytest-asyncio==0.25.2"]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,90 @@
+# The FIS subsystem.
+#
+# The operational console keeps its SQLite store and is not part of this file.
+# FIS is a separate tier with its own lifecycle: it holds operators, recipes,
+# derivatives, timebase models, geometry and jobs, and it joins to the console
+# only by incident_id and by the sha-256 of an evidence object.
+#
+# Bring it up with `npm run fis:up`. With it down, the console runs exactly as
+# it does today and every forensic surface reports itself unavailable, which is
+# a state the product renders rather than an error.
+
+name: civicsense-fis
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: fis
+      POSTGRES_PASSWORD: ${FIS_PG_PASSWORD:-fis-local-only}
+      POSTGRES_DB: fis
+      # Deterministic collation. A locale change would reorder every index-backed
+      # query and, more to the point, any ordering that reaches a digest.
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+    command:
+      - postgres
+      - -c
+      - timezone=UTC
+      - -c
+      - max_connections=100
+    ports:
+      - "${FIS_PG_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fis -d fis"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    ports:
+      - "${FIS_REDIS_PORT:-6380}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${FIS_MINIO_USER:-fisadmin}
+      MINIO_ROOT_PASSWORD: ${FIS_MINIO_PASSWORD:-fis-local-only}
+    ports:
+      - "${FIS_MINIO_PORT:-9010}:9000"
+      - "${FIS_MINIO_CONSOLE_PORT:-9011}:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  # Object Lock can only be enabled when a bucket is created. There is no way to
+  # add it afterwards, so if this step is wrong the retention story is
+  # unrecoverable without recreating the bucket. It runs once, on first boot,
+  # and it asserts the mode it set.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      FIS_ENV: ${FIS_ENV:-dev}
+      MINIO_ROOT_USER: ${FIS_MINIO_USER:-fisadmin}
+      MINIO_ROOT_PASSWORD: ${FIS_MINIO_PASSWORD:-fis-local-only}
+    entrypoint: ["/bin/sh", "/init/init-buckets.sh"]
+    volumes:
+      - ./containers/init-buckets.sh:/init/init-buckets.sh:ro
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

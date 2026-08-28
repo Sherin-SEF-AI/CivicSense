@@ -1,0 +1,3 @@
+corpora/out/
+worker/**/__pycache__/
+worker/.venv/
