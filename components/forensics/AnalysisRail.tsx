@@ -9,16 +9,18 @@ import type { ForensicsBundle } from '@/lib/api/schemas'
 import { Glyph, type GlyphName } from '@/components/glyphs'
 import { ScopeChart } from '@/components/data/ScopeChart'
 import { CausalGraphPanel } from '@/components/incident/CausalGraphPanel'
+import { MetrologyPanel } from './MetrologyPanel'
 import { EvidenceChip, HashChip, Overline } from '@/components/primitives/chips'
 import { AuthenticityDot } from '@/components/primitives/indicators'
 import { fmtScore, fmtTime } from '@/lib/format'
 import { useUi } from '@/lib/stores/ui'
 import { CANVAS } from '@/lib/tokens'
 
-type Tab = 'kinematics' | 'causality' | 'authenticity' | 'hypotheses' | 'entities'
+type Tab = 'kinematics' | 'metrology' | 'causality' | 'authenticity' | 'hypotheses' | 'entities'
 
 const TABS: { key: Tab; label: string; glyph: GlyphName }[] = [
   { key: 'kinematics', label: 'kinematics', glyph: 'kinematics' },
+  { key: 'metrology', label: 'metrology', glyph: 'calibration' },
   { key: 'causality', label: 'causality', glyph: 'causal-graph' },
   { key: 'authenticity', label: 'authenticity', glyph: 'verified' },
   { key: 'hypotheses', label: 'hypotheses', glyph: 'prediction' },
@@ -197,6 +199,8 @@ export function AnalysisRail({ bundle, onEvidence }: { bundle: ForensicsBundle; 
             ) : null}
           </div>
         ) : null}
+
+        {tab === 'metrology' ? <MetrologyPanel incidentId={bundle.incident_id} /> : null}
 
         {tab === 'causality' ? <CausalGraphPanel graph={bundle.causal} onEvidence={onEvidence} /> : null}
 

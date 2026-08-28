@@ -40,3 +40,51 @@ test.describe('forensic tier', () => {
     }
   })
 })
+
+test.describe('metrology workbench', () => {
+  test('a speed measurement runs, shows its working, and is audited', async ({ page, request }) => {
+    /* Created through the real ingest path, like everything else in the suite. */
+    const id = `E2E-FIS-MET-${Date.now()}`
+    const registered = await request.post('/api/v1/sources', {
+      data: { source_id: id, source_type: 'cctv-fixed', label: 'metrology', lat: 12.95, lon: 77.62, sync_quality: 'B' },
+    })
+    expect(registered.ok()).toBe(true)
+
+    const observation = await request.post('/api/v1/ingest/observation', {
+      data: {
+        source_id: id,
+        t_start: Date.now(),
+        payload_kind: 'keyframe',
+        classes: ['car'],
+        trigger: 'class:no_helmet',
+        situation_key: 'no-helmet',
+        lat: 12.95,
+        lon: 77.62,
+      },
+    })
+    const incidentId = ((await observation.json()) as { incident_id: string }).incident_id
+
+    await page.goto(`/forensics/${incidentId}`)
+    await page.getByRole('tab', { name: 'metrology' }).click()
+    const rail = page.getByRole('complementary', { name: 'analysis' })
+    await expect(rail.getByText(/arithmetic a person can follow/)).toBeVisible()
+
+    await rail.getByRole('button', { name: 'measure' }).click()
+
+    /* Ten metres in 800 ms is 45 km/h, and the interval must be shown with it. */
+    await expect(rail.getByText('45.00')).toBeVisible()
+    await expect(rail.getByText(/95 percent interval/)).toBeVisible()
+    await expect(rail.getByText(/class E/)).toBeVisible()
+    /* The working is the point: the number has to be checkable by hand. */
+    await expect(rail.getByText('elapsed s')).toBeVisible()
+    await expect(rail.getByText(/timing contribution/)).toBeVisible()
+
+    const admin = (await (await request.get('/api/v1/admin')).json()) as {
+      audit: { action: string; subject: string }[]
+    }
+    expect(
+      admin.audit.some((row) => row.action === 'measurement.taken' && row.subject === `incident:${incidentId}`),
+      'taking a measurement must be on the record',
+    ).toBe(true)
+  })
+})
