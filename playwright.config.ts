@@ -49,5 +49,7 @@ export default defineConfig({
       CIVICSENSE_DB: '.e2e/civicsense.db',
       CIVICSENSE_EVIDENCE: '.e2e/evidence',
     },
+    /* next dev reads .env.local, so the suite's server picks up GROQ_API_KEY if
+       one is set and exercises the configured branch. */
   },
 })

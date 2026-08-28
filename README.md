@@ -101,13 +101,35 @@ curl -X POST http://localhost:3111/api/v1/ingest/sensor \
 
 ### Enabling the understanding tier
 
+Put a Groq key in `.env.local`, then check it:
+
 ```bash
-export GROQ_API_KEY=...
+echo 'GROQ_API_KEY=...' >> .env.local
+npm run check:groq
 ```
+
+`check:groq` verifies the key, checks every model in the role table against what your account can
+actually reach, and makes one real structured call. It prints no part of the key.
 
 With a key set, the scene, context, legal selection and policy audit stages run against the real
 models. Without one, incidents still form, severity is still computed, and the package screen says
 plainly that no assessment exists rather than showing a fabricated one.
+
+Two model notes worth knowing:
+
+- `qwen/qwen3.8-27b` is the preferred scene model because it supports strict JSON schemas. It may be
+  blocked at the organisation level on a new account; enable it at
+  console.groq.com/settings/limits. Until then the gateway falls back to `qwen/qwen3.6-27b`.
+- `qwen3.6` supports JSON-object mode only, so the gateway describes the schema in the prompt,
+  validates the reply in code, and retries once before falling through. That path is slower and less
+  reliable than strict mode, which is why enabling 3.8 is worth doing.
+
+### What an assessment costs
+
+Measured on this deployment, a fully analysed incident across all four stages runs about **$0.003**,
+against the $0.03 per-incident ceiling the specification sets. Every call is recorded in
+`model_calls` with its tokens, latency and cost, including the ones that failed, and the analytics
+screen reads from that table.
 
 ### Checks
 

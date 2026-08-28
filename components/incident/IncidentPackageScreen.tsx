@@ -248,6 +248,25 @@ export function IncidentPackageScreen({ incidentId }: { incidentId: string }) {
           <MetricTile label="package cost" value={fmtUsd(totalCost, 4)} glyph="budget" />
         </section>
 
+        {!pkg.scene.trigger_agreement ? (
+          <section
+            className="flex items-start gap-2 border p-3"
+            style={{ borderColor: 'var(--medium)', borderRadius: 'var(--radius-card)' }}
+          >
+            <span style={{ color: 'var(--medium)', marginTop: 1 }}>
+              <Glyph name="tampered" size={16} />
+            </span>
+            <div>
+              <p className="text-[13px] text-[var(--ink-0)]">the scene assessment disagrees with the edge trigger</p>
+              <p className="mt-1 text-[12.5px] leading-[1.4] text-[var(--ink-1)]">
+                the source reported a trigger that the frames do not support. this package is evidence that the detector
+                fired without cause, which is a finding about the source rather than about the situation, and it should
+                not be dispositioned as a violation.
+              </p>
+            </div>
+          </section>
+        ) : null}
+
         <section>
           <Overline>evidence reel</Overline>
           <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
@@ -359,10 +378,14 @@ export function IncidentPackageScreen({ incidentId }: { incidentId: string }) {
               </Collapsible>
 
               <Collapsible title="causal graph" defaultOpen>
-                {bundle ? (
+                {pkg.causal && pkg.causal.nodes.length > 0 ? (
+                  <CausalGraphPanel graph={pkg.causal} onEvidence={showEvidence} />
+                ) : bundle && bundle.causal.nodes.length > 0 ? (
                   <CausalGraphPanel graph={bundle.causal} onEvidence={showEvidence} />
                 ) : (
-                  <LoadingBlocks rows={3} height={44} />
+                  <p className="mono text-[12.5px] text-[var(--ink-2)]">
+                    the context pass stated no causal chain for this incident.
+                  </p>
                 )}
               </Collapsible>
             </section>

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { IntervalSchema, SourceTypeSchema, SyncQualitySchema } from './common'
+import { CausalGraphSchema } from './incident'
 import { SensorKindSchema } from './observation'
 
 /** One entry on the reconstructed timeline. Nothing appears without citations. */
@@ -89,41 +90,8 @@ export const ConflictMetricSchema = z.object({
 })
 export type ConflictMetric = z.infer<typeof ConflictMetricSchema>
 
-/* ------------------------------------------------------------------ causal */
-
-export const CausalGraphSchema = z.object({
-  nodes: z.array(
-    z.object({
-      id: z.string(),
-      label: z.string(),
-      kind: z.enum(['event', 'state', 'condition', 'outcome']),
-      t: z.number().nullable(),
-      evidence_ids: z.array(z.string()),
-      root_cause_class: z
-        .enum(['infrastructure', 'behavioural', 'environmental', 'regulatory', 'systemic'])
-        .nullable(),
-    }),
-  ),
-  edges: z.array(
-    z.object({
-      from: z.string(),
-      to: z.string(),
-      confidence: z.number().min(0).max(1),
-      evidence_ids: z.array(z.string()),
-      counterfactual: z.boolean(),
-    }),
-  ),
-  root_causes: z.array(
-    z.object({
-      node_id: z.string(),
-      label: z.string(),
-      class: z.enum(['infrastructure', 'behavioural', 'environmental', 'regulatory', 'systemic']),
-      rank: z.number().int(),
-      share: z.number().min(0).max(1),
-    }),
-  ),
-})
-export type CausalGraph = z.infer<typeof CausalGraphSchema>
+/* The causal graph lives with the package schema, which also carries it. */
+export { CausalGraphSchema, type CausalGraph } from './incident'
 
 /* -------------------------------------------------------------- hypotheses */
 

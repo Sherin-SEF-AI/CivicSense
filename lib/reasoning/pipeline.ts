@@ -75,7 +75,19 @@ const SYSTEM_LEGAL = `You are the legal mapping stage of a civic intelligence pl
 You are given a situation and the statutes that counsel has already cleared as applicable to it. You
 may only select from that list, using the exact section string given. You may select none. Justify
 each selection in one sentence against the observed facts. You never invent a section, and you never
-cite a statute that is not in the list.`
+cite a statute that is not in the list.
+
+You also give a single action line for the owning department, imperative and specific.
+
+Two rules bind the action line absolutely:
+- If the scene assessment did not confirm the violation, the action line must not direct enforcement
+  of any kind. No ticket, no challan, no penalty, no warning for the offence. Direct the department at
+  what the evidence does support instead, which is usually verification on site or fixing the
+  condition that made the observation unusable.
+- If the disposition is educational, operational or infrastructure rather than enforcement, the action
+  line must match that disposition.
+
+Selecting no statute is the correct answer whenever the violation is unconfirmed.`
 
 const SYSTEM_GUARD = `You are the pre-dispatch policy audit of a civic intelligence platform.
 
@@ -98,10 +110,13 @@ interface EvidenceRow {
 }
 
 /** Frames are sent inline as data URLs. Each image is a flat cost, so few and chosen. */
-async function boardFor(incidentId: string): Promise<{ tiles: EvidenceBoardTile[]; parts: { observationId: string; dataUrl: string }[] }> {
+async function boardFor(
+  incidentId: string,
+): Promise<{ tiles: EvidenceBoardTile[]; parts: { observationId: string; dataUrl: string }[]; skipped: string[] }> {
   const observations = observationsForIncident(incidentId)
   const tiles: EvidenceBoardTile[] = []
   const parts: { observationId: string; dataUrl: string }[] = []
+  const skipped: string[] = []
 
   for (const observation of observations) {
     if (observation.payload_kind !== 'keyframe' && observation.payload_kind !== 'clip') continue
@@ -125,17 +140,26 @@ async function boardFor(incidentId: string): Promise<{ tiles: EvidenceBoardTile[
 
     /* Only still images go to the vision model; a clip is represented by its
        keyframe, and there are at most three because each image is a flat token
-       cost regardless of resolution. */
-    if (row.media_type.startsWith('image/') && parts.length < 3) {
+       cost regardless of resolution.
+       
+       An image too small to be looked at is skipped rather than sent. A real
+       deployment will receive truncated and corrupt frames, and one of them must
+       not take down the assessment of the whole incident: the frame stays in the
+       evidence board and the record, it simply is not offered as something to
+       read. */
+    const tooSmall = (row.width ?? 0) < 2 || (row.height ?? 0) < 2
+    if (row.media_type.startsWith('image/') && !tooSmall && parts.length < 3) {
       const bytes = await readFile(row.stored_path)
       parts.push({
         observationId: observation.observation_id,
         dataUrl: `data:${row.media_type};base64,${bytes.toString('base64')}`,
       })
+    } else if (tooSmall) {
+      skipped.push(observation.observation_id)
     }
   }
 
-  return { tiles, parts }
+  return { tiles, parts, skipped }
 }
 
 /** Drops any claim citing an observation id that is not in the evidence set. */
@@ -165,7 +189,7 @@ export async function runPipeline(incidentId: string): Promise<PipelineResult> {
 
   const observations = observationsForIncident(incidentId)
   const validIds = new Set(observations.map((o) => o.observation_id))
-  const { tiles, parts } = await boardFor(incidentId)
+  const { tiles, parts, skipped } = await boardFor(incidentId)
   const trace: ModelTraceRow[] = []
   let dropped = 0
   let claimsSeen = 0
@@ -186,8 +210,11 @@ export async function runPipeline(incidentId: string): Promise<PipelineResult> {
           .join('; ')}.`,
         parts.length > 0
           ? `Frames follow, in the same order as these observation ids: ${parts.map((p) => p.observationId).join(', ')}.`
-          : 'No imagery is attached to this incident. Assess only from the reported classes and say plainly that no frames were available.',
-      ].join('\n'),
+          : 'No usable imagery is attached to this incident. Assess only from the reported classes, set trigger_agreement to false, and say plainly that no frames were available to verify it.',
+        skipped.length > 0
+          ? `${skipped.length} attached image(s) were too small to be read and were not sent: ${skipped.join(', ')}. Treat them as unavailable rather than as evidence.`
+          : '',
+      ].filter(Boolean).join('\n'),
     },
     ...parts.map((p) => ({ type: 'image_url' as const, image_url: { url: p.dataUrl } })),
   ]
@@ -197,6 +224,9 @@ export async function runPipeline(incidentId: string): Promise<PipelineResult> {
     incidentId,
     tier: incident.priority === 'CRITICAL' ? 'on_demand' : 'auto',
     schema: SCENE_SCHEMA,
+    /* The scene object is the largest the pipeline asks for, and a truncated
+       reply is invalid JSON rather than a short one. */
+    maxTokens: 4096,
     messages: [
       { role: 'system', content: SYSTEM_SCENE },
       { role: 'user', content: sceneContent },
@@ -234,6 +264,7 @@ export async function runPipeline(incidentId: string): Promise<PipelineResult> {
     incidentId,
     tier: incident.priority === 'CRITICAL' ? 'on_demand' : 'auto',
     schema: CONTEXT_SCHEMA,
+    maxTokens: 3072,
     messages: [
       { role: 'system', content: SYSTEM_CONTEXT },
       {
@@ -282,6 +313,38 @@ export async function runPipeline(incidentId: string): Promise<PipelineResult> {
     },
   })
 
+  /* The causal chain becomes the why-graph. The chain is ordered, so edges are
+     successive links; evidence is carried from the factors that support them.
+     Nothing is added that the context pass did not state. */
+  const causal = {
+    nodes: context.causal_chain.map((label, i) => ({
+      id: `N${i + 1}`,
+      label,
+      kind: (i === 0 ? 'condition' : i === context.causal_chain.length - 1 ? 'outcome' : 'event') as
+        | 'event'
+        | 'state'
+        | 'condition'
+        | 'outcome',
+      t: i === 0 ? row.detected_at : null,
+      evidence_ids: context.contributing_factors[i]?.evidence_ids ?? [...validIds].slice(0, 1),
+      root_cause_class: null,
+    })),
+    edges: context.causal_chain.slice(0, -1).map((_, i) => ({
+      from: `N${i + 1}`,
+      to: `N${i + 2}`,
+      confidence: context.contributing_factors[i]?.confidence ?? context.what_happens_next.confidence,
+      evidence_ids: context.contributing_factors[i]?.evidence_ids ?? [],
+      counterfactual: i === 0,
+    })),
+    root_causes: context.contributing_factors.slice(0, 3).map((factor, i) => ({
+      node_id: `N${Math.min(i + 1, Math.max(1, context.causal_chain.length))}`,
+      label: factor.text,
+      class: 'systemic' as const,
+      rank: i + 1,
+      share: Math.round((1 / Math.max(1, Math.min(3, context.contributing_factors.length))) * 100) / 100,
+    })),
+  }
+
   /* Stage three: legal selection and the action line. */
   let legal: LegalMapping[] = []
   let actionLine = ''
@@ -295,12 +358,17 @@ export async function runPipeline(incidentId: string): Promise<PipelineResult> {
         {
           role: 'user',
           content: [
-            `Situation: ${situation.title} (${situation.key}).`,
-            `Observed facts: ${scene.summary}`,
+            `Situation the edge reported: ${situation.title} (${situation.key}).`,
+            `Observed facts from the scene assessment: ${scene.summary}`,
+            scene.trigger_agreement
+              ? 'The scene assessment supports the reported trigger.'
+              : 'The scene assessment DOES NOT support the reported trigger. The violation is unconfirmed, so no enforcement may be directed and no statute should be selected.',
+            scene.violation_assessment
+              ? `Violation assessment: ${scene.violation_assessment.text} (confidence ${scene.violation_assessment.confidence}).`
+              : 'No violation assessment was produced, which means the frames did not support one.',
             `Disposition from the context pass: ${context.disposition}.`,
             `Statutes cleared for this situation, select only from these exact section strings:`,
             ...situation.legal.map((l) => `- ${l.section} :: ${l.statute} :: ${l.title}`),
-            `Also give a single action line for the owning department, imperative and specific.`,
           ].join('\n'),
         },
       ],
@@ -323,6 +391,20 @@ export async function runPipeline(incidentId: string): Promise<PipelineResult> {
         }
       })
     actionLine = legalCall.data.action_line
+
+    /* Enforced here as well as asked for in the prompt. A recommendation to
+       penalise someone for a violation the evidence does not establish is the
+       one output that must be impossible, not merely discouraged. */
+    if (!scene.trigger_agreement) {
+      if (legal.length > 0) {
+        legal = []
+        dropped += 1
+      }
+      if (/\b(ticket|challan|fine|penal|penalty|prosecut|enforce|book|impound|seize|warning)\b/i.test(actionLine)) {
+        actionLine =
+          'verify on site before any enforcement: the scene assessment did not support the reported trigger, and the observation is not sufficient for a violation'
+      }
+    }
   }
 
   /* Stage four: policy audit before anything is dispatched. */
@@ -372,9 +454,10 @@ export async function runPipeline(incidentId: string): Promise<PipelineResult> {
       redactions: guardCall.data.redactions,
       model: guardCall.model,
     },
+    causal,
     model_trace: trace,
     quality: {
-      coverage: coverageOf(incidentId),
+      coverage: coverageOf(incidentId, [row.detected_at - 120_000, row.detected_at + 180_000]),
       sync_grade: incident.sync_quality,
       calibration_uncertainty_m: calibrationUncertainty(incidentId),
       identity_confidence: 0,
@@ -408,24 +491,32 @@ function traceRow(
   }
 }
 
-/** Fraction of the incident window any source could speak about. */
-function coverageOf(incidentId: string): number {
+/**
+ * Fraction of the incident window any source could speak about.
+ *
+ * The denominator is the incident window, not the span of the observations, so
+ * the number answers "how much of what happened did anything see" rather than
+ * "how much of what we saw did we see". A single still keyframe therefore scores
+ * near zero against a five minute window, which is the correct reading: one
+ * photograph is not coverage of an interval, and a package resting on it should
+ * say so.
+ */
+function coverageOf(incidentId: string, window: [number, number]): number {
   const rows = all<{ t_start: number; t_end: number }>(
     'SELECT t_start, t_end FROM observations WHERE incident_id = ? ORDER BY t_start ASC',
     [incidentId],
   )
   if (rows.length === 0) return 0
-  const start = rows[0]!.t_start
-  const end = Math.max(...rows.map((r) => r.t_end))
-  const span = Math.max(1, end - start)
+  const span = Math.max(1, window[1] - window[0])
   let covered = 0
-  let cursor = start
+  let cursor = window[0]
   for (const row of rows) {
-    if (row.t_end <= cursor) continue
-    covered += row.t_end - Math.max(row.t_start, cursor)
-    cursor = row.t_end
+    const end = Math.min(row.t_end, window[1])
+    if (end <= cursor) continue
+    covered += end - Math.max(row.t_start, cursor)
+    cursor = end
   }
-  return Math.round(Math.min(1, covered / span) * 100) / 100
+  return Math.round(Math.min(1, covered / span) * 1000) / 1000
 }
 
 function calibrationUncertainty(incidentId: string): number {

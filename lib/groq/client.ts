@@ -26,6 +26,60 @@ interface RoleConfig {
   vision?: boolean
 }
 
+/**
+ * What each model accepts for reasoning_effort.
+ *
+ * This is a per-model property, not a per-role one. The gpt-oss models take the
+ * four-level scale; the Qwen vision models accept only none or default and
+ * answer 400 for anything else; transcription takes no reasoning parameter at
+ * all. A role asks for the effort it wants and the gateway maps it onto what the
+ * model it actually reached will accept.
+ */
+type ReasoningDialect = 'levels' | 'binary' | 'unsupported'
+
+const MODEL_REASONING: Record<string, ReasoningDialect> = {
+  'openai/gpt-oss-120b': 'levels',
+  'openai/gpt-oss-20b': 'levels',
+  'openai/gpt-oss-safeguard-20b': 'levels',
+  'qwen/qwen3.8-27b': 'binary',
+  'qwen/qwen3.6-27b': 'binary',
+  'whisper-large-v3-turbo': 'unsupported',
+  'whisper-large-v3': 'unsupported',
+}
+
+/**
+ * How each model can be made to return structured output.
+ *
+ * Only some models support a strict JSON schema. The Qwen vision models take
+ * json_object mode, where the schema has to be described in the prompt and
+ * validated in code afterwards. Sending a schema to a model that cannot honour
+ * it returns a 400 with an empty generation, which is a confusing failure to
+ * diagnose from the outside.
+ */
+type StructuredMode = 'schema' | 'object'
+
+const MODEL_STRUCTURED: Record<string, StructuredMode> = {
+  'openai/gpt-oss-120b': 'schema',
+  'openai/gpt-oss-20b': 'schema',
+  'openai/gpt-oss-safeguard-20b': 'schema',
+  'qwen/qwen3.8-27b': 'schema',
+  'qwen/qwen3.6-27b': 'object',
+}
+
+export function structuredModeFor(model: string): StructuredMode {
+  return MODEL_STRUCTURED[model] ?? 'schema'
+}
+
+export function reasoningFor(model: string, requested: RoleConfig['reasoning']): string | null {
+  if (requested === undefined) return null
+  const dialect = MODEL_REASONING[model] ?? 'levels'
+  if (dialect === 'unsupported') return null
+  /* A model that only knows none and default gets default for anything the role
+     asked for above none, rather than a value it will reject. */
+  if (dialect === 'binary') return requested === 'none' ? 'none' : 'default'
+  return requested
+}
+
 export const ROLES: Record<Role, RoleConfig> = {
   scene: { primary: 'qwen/qwen3.8-27b', fallback: 'qwen/qwen3.6-27b', priceIn: 0.4, priceOut: 1.2, reasoning: 'low', vision: true },
   context: { primary: 'openai/gpt-oss-120b', fallback: 'openai/gpt-oss-20b', priceIn: 0.15, priceOut: 0.6, reasoning: 'medium' },
@@ -121,6 +175,11 @@ export async function call<T>(options: CallOptions): Promise<CallResult<T>> {
   let lastError: unknown
 
   for (const [index, model] of chain.entries()) {
+    /* Object mode gets one corrective retry: a truncated or prose-wrapped reply
+       is recoverable by asking again more firmly, and burning the fallback on it
+       would lose the better model for no reason. */
+    const attempts = options.schema && structuredModeFor(model) === 'object' ? 2 : 1
+    for (let attempt = 0; attempt < attempts; attempt++) {
     const started = Date.now()
     try {
       const body: Record<string, unknown> = {
@@ -130,13 +189,36 @@ export async function call<T>(options: CallOptions): Promise<CallResult<T>> {
         temperature: options.temperature ?? 0.2,
         stream: false,
       }
-      if (config.reasoning) body.reasoning_effort = config.reasoning
+      const reasoning = reasoningFor(model, config.reasoning)
+      if (reasoning !== null) body.reasoning_effort = reasoning
+      let messages = options.messages
       if (options.schema) {
-        body.response_format = {
-          type: 'json_schema',
-          json_schema: { name: options.schema.name, schema: options.schema.schema, strict: true },
+        if (structuredModeFor(model) === 'schema') {
+          body.response_format = {
+            type: 'json_schema',
+            json_schema: { name: options.schema.name, schema: options.schema.schema, strict: true },
+          }
+        } else {
+          /* Object mode: the schema goes in the prompt and the result is checked
+             here, because the model will not enforce it. */
+          body.response_format = { type: 'json_object' }
+          messages = [
+            ...options.messages,
+            {
+              role: 'system',
+              content: [
+                'Reply with a single JSON object and nothing else. No prose before or after it.',
+                'It must match this JSON Schema exactly, including every required property:',
+                JSON.stringify(options.schema.schema),
+                attempt > 0
+                  ? 'Your previous reply was not valid JSON. Keep every string short so the object completes within the token budget.'
+                  : 'Keep every string to one or two sentences so the object completes within the token budget.',
+              ].join('\n'),
+            },
+          ]
         }
       }
+      body.messages = messages
       if (options.tier) body.service_tier = options.tier
 
       const response = await fetch(`${BASE}/chat/completions`, {
@@ -163,7 +245,21 @@ export async function call<T>(options: CallOptions): Promise<CallResult<T>> {
 
       record(options, model, tokensIn, tokensOut, costUsd, latencyMs, index > 0 ? chain[0]! : null, true, null)
 
-      const data = options.schema ? (JSON.parse(content) as T) : (content as unknown as T)
+      if (!options.schema) {
+        return {
+          data: content as unknown as T,
+          model,
+          tokensIn,
+          tokensOut,
+          costUsd: Math.round(costUsd * 1e6) / 1e6,
+          latencyMs,
+          fallbackFrom: index > 0 ? chain[0]! : null,
+        }
+      }
+
+      /* Object mode can return prose around the object, or miss a required
+         property. Both are recoverable here rather than at the call site. */
+      const data = parseStructured<T>(content, options.schema.schema)
       return {
         data,
         model,
@@ -177,9 +273,30 @@ export async function call<T>(options: CallOptions): Promise<CallResult<T>> {
       lastError = error
       if (error instanceof GroqUnconfigured) throw error
     }
+    }
   }
 
   throw lastError instanceof Error ? lastError : new Error('every model in the chain failed')
+}
+
+/**
+ * Parses a structured response and checks the required properties are present.
+ *
+ * Object mode gives no guarantee, so a missing required key is caught here and
+ * raised as a normal failure, which sends the call down the fallback chain
+ * rather than letting a half-formed object reach the pipeline.
+ */
+function parseStructured<T>(content: string, schema: Record<string, unknown>): T {
+  const trimmed = content.trim()
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start < 0 || end <= start) throw new Error('the model returned no JSON object')
+
+  const parsed = JSON.parse(trimmed.slice(start, end + 1)) as Record<string, unknown>
+  const required = Array.isArray(schema.required) ? (schema.required as string[]) : []
+  const missing = required.filter((key) => parsed[key] === undefined)
+  if (missing.length > 0) throw new Error(`the response is missing required properties: ${missing.join(', ')}`)
+  return parsed as T
 }
 
 function record(

@@ -113,8 +113,16 @@ export function fmtBytes(bytes: number): string {
   return `${value.toFixed(value < 10 && unit > 0 ? 1 : 0)} ${BYTE_UNITS[unit]}`
 }
 
-export function fmtUsd(v: number, digits = 2): string {
-  return `$${v.toFixed(digits)}`
+/**
+ * Money.
+ *
+ * Below a cent the two-decimal form reads as zero, which is wrong when real
+ * calls have been billed. Small amounts get the precision they need instead.
+ */
+export function fmtUsd(v: number, digits?: number): string {
+  if (digits !== undefined) return `$${v.toFixed(digits)}`
+  if (v > 0 && v < 0.01) return `$${v.toFixed(4)}`
+  return `$${v.toFixed(2)}`
 }
 
 export function fmtLatLon(lat: number, lon: number): string {

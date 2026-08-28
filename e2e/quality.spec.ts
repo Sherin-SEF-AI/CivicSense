@@ -74,15 +74,43 @@ test.describe('quality bar', () => {
     const id = await seedIncident(request)
     await page.goto(`/incident/${id}`)
 
-    /* Without GROQ_API_KEY the understanding tier cannot run. The screen must
-       state that plainly: a fabricated package is the one failure mode this
-       product cannot have. */
-    const hasKey = process.env.GROQ_API_KEY !== undefined && process.env.GROQ_API_KEY !== ''
-    if (hasKey) {
-      await expect(page.getByText('evidence reel')).toBeVisible({ timeout: 60_000 })
+    /* Whether the understanding tier is configured is a property of the server,
+       not of this process, so ask the server rather than reading an env var the
+       test runner may not share. */
+    const probe = await request.get(`/api/v1/incidents/${id}/package`)
+    const body = (await probe.json()) as { error?: string }
+    const configured = body.error !== 'reasoning_unavailable'
+
+    if (configured) {
+      /* With a model configured the package must render an assessment. */
+      await expect(page.getByText('evidence reel')).toBeVisible({ timeout: 90_000 })
+      await expect(page.getByText('model trace').first()).toBeVisible()
     } else {
+      /* Without one the screen must say so. A fabricated package is the single
+         failure mode this product cannot have. */
       await expect(page.getByText('no assessment for this incident')).toBeVisible()
       await expect(page.getByRole('button', { name: 'run the understanding pass' })).toBeVisible()
+    }
+  })
+
+  test('an unconfirmed violation never produces an enforcement recommendation', async ({ request }) => {
+    const id = await seedIncident(request)
+    const response = await request.post(`/api/v1/incidents/${id}/package`, { data: {} })
+    const body = (await response.json()) as
+      | { error: string }
+      | { package: { scene: { trigger_agreement: boolean }; legal: unknown[]; routing: { action_line: string } | null } }
+
+    if ('error' in body) {
+      test.skip(true, 'the understanding tier is not configured on this server')
+      return
+    }
+
+    if (!body.package.scene.trigger_agreement) {
+      /* The evidence did not support the trigger, so nothing punitive may follow
+         from it: no statute, and no enforcement in the action line. */
+      expect(body.package.legal).toHaveLength(0)
+      const line = body.package.routing?.action_line ?? ''
+      expect(line).not.toMatch(/\b(ticket|challan|fine|penalty|prosecute|impound|seize)\b/i)
     }
   })
 })

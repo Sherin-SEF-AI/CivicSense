@@ -220,6 +220,40 @@ export const EvidenceBoardTileSchema = z.object({
 })
 export type EvidenceBoardTile = z.infer<typeof EvidenceBoardTileSchema>
 
+export const CausalGraphSchema = z.object({
+  nodes: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      kind: z.enum(['event', 'state', 'condition', 'outcome']),
+      t: z.number().nullable(),
+      evidence_ids: z.array(z.string()),
+      root_cause_class: z
+        .enum(['infrastructure', 'behavioural', 'environmental', 'regulatory', 'systemic'])
+        .nullable(),
+    }),
+  ),
+  edges: z.array(
+    z.object({
+      from: z.string(),
+      to: z.string(),
+      confidence: z.number().min(0).max(1),
+      evidence_ids: z.array(z.string()),
+      counterfactual: z.boolean(),
+    }),
+  ),
+  root_causes: z.array(
+    z.object({
+      node_id: z.string(),
+      label: z.string(),
+      class: z.enum(['infrastructure', 'behavioural', 'environmental', 'regulatory', 'systemic']),
+      rank: z.number().int(),
+      share: z.number().min(0).max(1),
+    }),
+  ),
+})
+export type CausalGraph = z.infer<typeof CausalGraphSchema>
+
 export const IntelligencePackageSchema = z.object({
   incident: IncidentSummarySchema,
   board: z.array(EvidenceBoardTileSchema),
@@ -229,6 +263,8 @@ export const IntelligencePackageSchema = z.object({
   legal: z.array(LegalMappingSchema),
   routing: RoutingSchema.nullable(),
   guard: GuardVerdictSchema,
+  /* The why-graph, derived from the causal chain the context pass stated. */
+  causal: CausalGraphSchema.optional(),
   model_trace: z.array(ModelTraceRowSchema),
   quality: PackageQualitySchema,
   observation_ids: z.array(z.string()),
