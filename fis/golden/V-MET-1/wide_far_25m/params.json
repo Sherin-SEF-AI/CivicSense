@@ -1,0 +1,74 @@
+{
+  "ground_rails": [
+    {
+      "a": {
+        "x_milli": 458092,
+        "y_milli": 1066679
+      },
+      "b": {
+        "x_milli": 899298,
+        "y_milli": 377495
+      }
+    },
+    {
+      "a": {
+        "x_milli": 1460908,
+        "y_milli": 1066679
+      },
+      "b": {
+        "x_milli": 1019702,
+        "y_milli": 377495
+      }
+    },
+    {
+      "a": {
+        "x_milli": 678516,
+        "y_milli": 718086
+      },
+      "b": {
+        "x_milli": 1240484,
+        "y_milli": 718086
+      }
+    },
+    {
+      "a": {
+        "x_milli": 799579,
+        "y_milli": 530310
+      },
+      "b": {
+        "x_milli": 1119421,
+        "y_milli": 530310
+      }
+    }
+  ],
+  "lens": {
+    "cx_milli": 959500,
+    "cy_milli": 539500,
+    "focal_milli_px": 1200000,
+    "k1_nano": -140000000,
+    "k2_nano": 30000000
+  },
+  "pixel_sigma_milli": 1000,
+  "query_base": {
+    "x_milli": 935873,
+    "y_milli": 501879
+  },
+  "query_top": {
+    "x_milli": 935537,
+    "y_milli": 413213
+  },
+  "reference_base": {
+    "x_milli": 797744,
+    "y_milli": 908623
+  },
+  "reference_height_mm": 1800,
+  "reference_tolerance_mm": 5,
+  "reference_top": {
+    "x_milli": 788609,
+    "y_milli": 678734
+  },
+  "vertical_vanishing_point": {
+    "x_milli": 959500,
+    "y_milli": 6185056
+  }
+}

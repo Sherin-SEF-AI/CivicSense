@@ -1,0 +1,7 @@
+{
+  "first_crossing_ms": 0,
+  "second_crossing_ms": 800,
+  "separation_mm": 10000,
+  "separation_tolerance_mm": 30,
+  "timing_sigma_ms": 40
+}
