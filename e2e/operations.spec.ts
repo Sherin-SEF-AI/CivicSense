@@ -55,8 +55,12 @@ test.describe('operations', () => {
     const rendered = await page.evaluate(() => {
       const map = (window as unknown as { __csmap?: { queryRenderedFeatures: (o: unknown) => unknown[] } }).__csmap
       if (!map) return null
+      /* Incidents render either as individual markers or as clusters, depending
+         on how many are in view. Asserting one or the other would be asserting
+         the policy rather than that they are on the map. */
       return {
-        incidents: map.queryRenderedFeatures({ layers: ['incident-ring'] }).length,
+        markers: map.queryRenderedFeatures({ layers: ['incident-ring'] }).length,
+        clusters: map.queryRenderedFeatures({ layers: ['cluster-circle'] }).length,
         fov: map.queryRenderedFeatures({ layers: ['fov-fill'] }).length,
         roads: map.queryRenderedFeatures({ layers: ['roads-major'] }).length,
       }
@@ -67,7 +71,10 @@ test.describe('operations', () => {
        basemap is present rather than an empty style. */
     expect(rendered!.roads, 'basemap roads render').toBeGreaterThan(0)
     expect(rendered!.fov, 'camera fields of view render').toBeGreaterThan(0)
-    expect(rendered!.incidents, 'ingested incidents render on the map').toBeGreaterThan(0)
+    expect(
+      rendered!.markers + rendered!.clusters,
+      'ingested incidents render on the map, as markers or as clusters',
+    ).toBeGreaterThan(0)
     expect(errors, errors.join('\n')).toHaveLength(0)
   })
 

@@ -14,6 +14,9 @@ import { run } from '@/lib/db'
 
 const BASE = process.env.GROQ_BASE_URL ?? 'https://api.groq.com/openai/v1'
 
+/** How many times to wait out a transient capacity signal before giving up on a model. */
+const CAPACITY_RETRIES = 3
+
 export type Role = 'scene' | 'context' | 'fast' | 'forensic' | 'guard' | 'query' | 'audio'
 
 interface RoleConfig {
@@ -179,6 +182,7 @@ export async function call<T>(options: CallOptions): Promise<CallResult<T>> {
        is recoverable by asking again more firmly, and burning the fallback on it
        would lose the better model for no reason. */
     const attempts = options.schema && structuredModeFor(model) === 'object' ? 2 : 1
+    let capacityRetries = 0
     for (let attempt = 0; attempt < attempts; attempt++) {
     const started = Date.now()
     try {
@@ -233,6 +237,18 @@ export async function call<T>(options: CallOptions): Promise<CallResult<T>> {
       if (!response.ok) {
         const text = await response.text()
         record(options, model, 0, 0, 0, latencyMs, index > 0 ? chain[0]! : null, false, `${response.status} ${text.slice(0, 300)}`)
+
+        /* 498 is the flex tier saying it is momentarily full, and 429 is a rate
+           limit. Both mean try this model again shortly. Falling through to a
+           weaker model on a transient capacity signal would quietly degrade
+           every assessment made during a busy minute. */
+        if ((response.status === 498 || response.status === 429) && capacityRetries < CAPACITY_RETRIES) {
+          capacityRetries++
+          await new Promise((r) => setTimeout(r, 1200 * capacityRetries))
+          attempt--
+          continue
+        }
+
         throw new GroqCallFailed(response.status, text)
       }
 

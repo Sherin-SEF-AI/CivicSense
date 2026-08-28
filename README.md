@@ -117,19 +117,22 @@ plainly that no assessment exists rather than showing a fabricated one.
 
 Two model notes worth knowing:
 
-- `qwen/qwen3.8-27b` is the preferred scene model because it supports strict JSON schemas. It may be
-  blocked at the organisation level on a new account; enable it at
-  console.groq.com/settings/limits. Until then the gateway falls back to `qwen/qwen3.6-27b`.
-- `qwen3.6` supports JSON-object mode only, so the gateway describes the schema in the prompt,
-  validates the reply in code, and retries once before falling through. That path is slower and less
-  reliable than strict mode, which is why enabling 3.8 is worth doing.
+- `qwen/qwen3.8-27b` is the scene model, and it supports strict JSON schemas. It can be blocked at the
+  organisation level on a new account; if `check:groq` reports a 403 for it, enable it at
+  console.groq.com/settings/limits. It is worth doing: measured on the same incident, 3.8 answers in
+  about 860ms against 3.6's 3.6 to 6.5 seconds, in a sixth of the output tokens, for half the cost.
+- The fallback `qwen/qwen3.6-27b` supports JSON-object mode only, so the gateway describes the schema
+  in the prompt, validates the reply in code and retries once before falling through.
+- A `498 flex tier capacity exceeded` is a transient signal, not an unavailable model. The gateway
+  waits and retries the same model up to three times rather than dropping to a weaker one, because
+  quietly degrading every assessment made during a busy minute is worse than being slow.
 
 ### What an assessment costs
 
-Measured on this deployment, a fully analysed incident across all four stages runs about **$0.003**,
-against the $0.03 per-incident ceiling the specification sets. Every call is recorded in
-`model_calls` with its tokens, latency and cost, including the ones that failed, and the analytics
-screen reads from that table.
+Measured on this deployment, a fully analysed incident across all four stages runs about **$0.0016**
+on the primary chain, against the $0.03 per-incident ceiling the specification sets. Every call is
+recorded in `model_calls` with its tokens, latency and cost, including the ones that failed, and the
+analytics screen reads from that table.
 
 ### Checks
 
