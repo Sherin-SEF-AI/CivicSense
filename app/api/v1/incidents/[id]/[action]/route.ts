@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server'
-import { guard, json } from '../../../_lib/handler'
+import { fixturesDisabled, json } from '../../../_lib/handler'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -12,8 +12,7 @@ const ACTIONS = new Set(['ack', 'dispatch', 'escalate', 'resolve', 'dismiss'])
  * deterministic base, so the world stays reproducible while actions still stick.
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string; action: string }> }) {
-  const blocked = guard()
-  if (blocked) return blocked
+  if (process.env.NEXT_PUBLIC_DATA_MODE !== 'fixtures') return fixturesDisabled()
   const { id, action } = await ctx.params
   if (!ACTIONS.has(action)) return json('action-400', { error: 'unknown_action', action }, 400)
 

@@ -92,7 +92,12 @@ export function buildSources({ seed, now }: BuildArgs): SourceDevice[] {
     const zone = zoneFor(lon, lat)
     const ptz = chance(rnd, 0.18)
     const state = stateFor(rnd)
-    const calibratedAt = now - intRange(rnd, 2, 96) * 86400_000
+    /* About a quarter of the fleet is genuinely overdue. Stating the split
+       explicitly beats skewing a distribution and hoping, and it keeps an amber
+       calibration age meaningful rather than the normal state of the table. */
+    const overdue = chance(rnd, 0.26)
+    const calibrationAge = overdue ? intRange(rnd, 31, 160) : intRange(rnd, 1, 29)
+    const calibratedAt = now - calibrationAge * 86400_000
     const calibAgeDays = (now - calibratedAt) / 86400_000
     const attestation = 1
     const calibrationRecency = Math.max(0.55, 1 - Math.max(0, calibAgeDays - 30) / 180)

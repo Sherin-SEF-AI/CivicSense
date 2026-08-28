@@ -1,4 +1,5 @@
 import type { StyleSpecification } from '@maplibre/maplibre-gl-style-spec'
+import { CANVAS } from '@/lib/tokens'
 
 /**
  * The keyless dark matte basemap.
@@ -12,8 +13,6 @@ import type { StyleSpecification } from '@maplibre/maplibre-gl-style-spec'
  * imperatively with addImage, and labels are DOM, because self-hosting glyph
  * PBFs for a handful of cluster counts is not worth the build step.
  */
-export const MAP_BASE = 'var(--bg-0)'
-
 export function darkMatteStyle(): StyleSpecification {
   return {
     version: 8,
@@ -25,18 +24,18 @@ export function darkMatteStyle(): StyleSpecification {
       zones: { type: 'geojson', data: '/basemap/zones.geojson' },
     },
     layers: [
-      { id: 'bg', type: 'background', paint: { 'background-color': '#08090b' } },
+      { id: 'bg', type: 'background', paint: { 'background-color': CANVAS.bg0 } },
       {
         id: 'green',
         type: 'fill',
         source: 'green',
-        paint: { 'fill-color': '#0d130f', 'fill-outline-color': '#141b16' },
+        paint: { 'fill-color': CANVAS.mapGreen, 'fill-outline-color': CANVAS.mapGreenEdge },
       },
       {
         id: 'water',
         type: 'fill',
         source: 'water',
-        paint: { 'fill-color': '#0b1118', 'fill-outline-color': '#152030' },
+        paint: { 'fill-color': CANVAS.mapWater, 'fill-outline-color': CANVAS.mapWaterEdge },
       },
       {
         id: 'roads-minor',
@@ -44,7 +43,7 @@ export function darkMatteStyle(): StyleSpecification {
         source: 'roads_minor',
         minzoom: 12,
         paint: {
-          'line-color': '#161a1f',
+          'line-color': CANVAS.mapRoadMinor,
           'line-width': ['interpolate', ['exponential', 1.4], ['zoom'], 12, 0.4, 16, 1.6],
         },
       },
@@ -53,7 +52,7 @@ export function darkMatteStyle(): StyleSpecification {
         type: 'line',
         source: 'roads_major',
         paint: {
-          'line-color': '#0e1114',
+          'line-color': CANVAS.bg1,
           'line-width': ['interpolate', ['exponential', 1.4], ['zoom'], 9, 1.6, 16, 9],
         },
       },
@@ -62,7 +61,7 @@ export function darkMatteStyle(): StyleSpecification {
         type: 'line',
         source: 'roads_major',
         paint: {
-          'line-color': ['match', ['get', 'klass'], 'ring', '#252c34', 'arterial', '#20262d', '#1b2027'],
+          'line-color': ['match', ['get', 'klass'], 'ring', CANVAS.mapRoadRing, 'arterial', CANVAS.mapRoadArterial, CANVAS.mapRoadOther],
           'line-width': ['interpolate', ['exponential', 1.4], ['zoom'], 9, 0.8, 16, 5],
         },
       },
@@ -71,14 +70,14 @@ export function darkMatteStyle(): StyleSpecification {
         type: 'fill',
         source: 'zones',
         layout: { visibility: 'none' },
-        paint: { 'fill-color': '#58a6ff', 'fill-opacity': 0.04 },
+        paint: { 'fill-color': CANVAS.live, 'fill-opacity': 0.04 },
       },
       {
         id: 'zone-line',
         type: 'line',
         source: 'zones',
         layout: { visibility: 'none' },
-        paint: { 'line-color': '#2a313a', 'line-width': 1, 'line-dasharray': [2, 3] },
+        paint: { 'line-color': CANVAS.line1, 'line-width': 1, 'line-dasharray': [2, 3] },
       },
     ],
   }

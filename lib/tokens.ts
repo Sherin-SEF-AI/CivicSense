@@ -95,3 +95,46 @@ export const SYNC_COLOR: Record<'A' | 'B' | 'C' | 'D', string> = {
   C: 'var(--medium)',
   D: 'var(--critical)',
 }
+
+/**
+ * Canvas cannot resolve CSS custom properties: assigning `var(--live)` to
+ * strokeStyle silently keeps the previous value, which is how a chart ends up
+ * drawing black on black with no error. Anything that reaches a 2D context has
+ * to be a literal, so these mirror the tokens and are the only place a hex may
+ * appear outside tokens.css.
+ */
+export const CANVAS = {
+  bg0: '#08090b',
+  bg1: '#0e1013',
+  bg2: '#14171b',
+  bg3: '#1a1e23',
+  line0: '#1f242b',
+  line1: '#2a313a',
+  ink0: '#e8eaed',
+  ink1: '#9aa3ad',
+  ink2: '#5c6570',
+  ink3: '#3a4048',
+  critical: '#f85149',
+  high: '#db6d28',
+  medium: '#d29922',
+  low: '#8b949e',
+  info: '#6e7681',
+  ok: '#3fb950',
+  live: '#58a6ff',
+  violet: '#bc8cff',
+  liveFill: 'rgba(88,166,255,0.16)',
+  /* Basemap and deck surfaces. These are map and canvas only, and exist here so
+     the palette has exactly one home. */
+  mapGreen: '#0d130f',
+  mapGreenEdge: '#141b16',
+  mapWater: '#0b1118',
+  mapWaterEdge: '#152030',
+  mapRoadMinor: '#161a1f',
+  mapRoadRing: '#252c34',
+  mapRoadArterial: '#20262d',
+  mapRoadOther: '#1b2027',
+  deckBlock: '#1d232a',
+  deckLaneAlt: '#101317',
+  violetFill: 'rgba(188,140,255,0.16)',
+  okFill: 'rgba(63,185,80,0.16)',
+} as const

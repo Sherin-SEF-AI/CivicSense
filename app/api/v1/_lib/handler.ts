@@ -13,12 +13,21 @@ import { IS_FIXTURES } from '@/lib/env'
 
 export const FIXTURE_SENTINEL = 'civicsense-fixture-server'
 
-export function guard(): NextResponse | null {
-  if (!IS_FIXTURES) {
-    return NextResponse.json({ error: 'not_found' }, { status: 404 })
-  }
-  return null
+/**
+ * The 404 a live build answers with.
+ *
+ * Callers must compare the inlined constant themselves rather than call a
+ * predicate: NEXT_PUBLIC_DATA_MODE is replaced with a string literal at build
+ * time, so `process.env.NEXT_PUBLIC_DATA_MODE !== 'fixtures'` folds to `true`
+ * and everything after it, including the dynamic imports of the fixture world,
+ * is provably unreachable and dropped. Hiding that comparison behind a function
+ * defeats the analysis and ships the whole fixture world in a live build.
+ */
+export function fixturesDisabled(): NextResponse {
+  return NextResponse.json({ error: 'not_found' }, { status: 404 })
 }
+
+export const FIXTURES_ENABLED = IS_FIXTURES
 
 /** Deterministic per-route delay, so loading states are genuinely exercised. */
 function latencyFor(key: string): number {

@@ -1,12 +1,11 @@
 import type { Zone } from '@/lib/api/schemas'
-import { guard, json } from '../_lib/handler'
+import { fixturesDisabled, json } from '../_lib/handler'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
-  const blocked = guard()
-  if (blocked) return blocked
+  if (process.env.NEXT_PUBLIC_DATA_MODE !== 'fixtures') return fixturesDisabled()
   const { ZONE_SEEDS } = await import('@/lib/geo/bengaluru')
   const { zonePolygon, subSeed } = await import('@/lib/geo/build')
   const { WORLD_SEED } = await import('@/lib/fixtures/world')

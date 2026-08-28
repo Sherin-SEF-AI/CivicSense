@@ -1,13 +1,12 @@
 import type { NextRequest } from 'next/server'
 import type { IncidentSummary } from '@/lib/api/schemas'
-import { decodeCursor, encodeCursor, guard, json, list, num } from '../_lib/handler'
+import { decodeCursor, encodeCursor, fixturesDisabled, json, list, num } from '../_lib/handler'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
-  const blocked = guard()
-  if (blocked) return blocked
+  if (process.env.NEXT_PUBLIC_DATA_MODE !== 'fixtures') return fixturesDisabled()
   const { getWorld, liveIncidents } = await import('@/lib/fixtures/world')
   const w = getWorld()
   const q = req.nextUrl.searchParams

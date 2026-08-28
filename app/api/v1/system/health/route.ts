@@ -1,5 +1,5 @@
 import type { RoleHealth, SystemHealth } from '@/lib/api/schemas'
-import { guard, json } from '../../_lib/handler'
+import { fixturesDisabled, json } from '../../_lib/handler'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -13,8 +13,7 @@ const ROLES: readonly (readonly [RoleHealth['role'], string, string])[] = [
 ]
 
 export async function GET() {
-  const blocked = guard()
-  if (blocked) return blocked
+  if (process.env.NEXT_PUBLIC_DATA_MODE !== 'fixtures') return fixturesDisabled()
   const { getWorld, countsByBand } = await import('@/lib/fixtures/world')
   const { getHub } = await import('@/lib/fixtures/hub')
   const w = getWorld()

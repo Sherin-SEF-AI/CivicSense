@@ -1,5 +1,5 @@
 import type { NextRequest } from 'next/server'
-import { guard, json } from '../../../_lib/handler'
+import { fixturesDisabled, json } from '../../../_lib/handler'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -11,8 +11,7 @@ export const dynamic = 'force-dynamic'
  * investigation loop terminates.
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ incidentId: string }> }) {
-  const blocked = guard()
-  if (blocked) return blocked
+  if (process.env.NEXT_PUBLIC_DATA_MODE !== 'fixtures') return fixturesDisabled()
   const { incidentId } = await ctx.params
   const { getWorld } = await import('@/lib/fixtures/world')
   const w = getWorld()

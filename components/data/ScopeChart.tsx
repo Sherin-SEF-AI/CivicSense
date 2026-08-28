@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import { fmtClock } from '@/lib/format'
+import { CANVAS } from '@/lib/tokens'
 
 export interface ScopeSeries {
   label: string
@@ -12,6 +13,8 @@ export interface ScopeSeries {
   values: (number | null)[]
   /** Optional band drawn behind the line, for stated uncertainty. */
   band?: { lo: (number | null)[]; hi: (number | null)[] }
+  /** Literal fill for the band. Canvas cannot read a CSS variable. */
+  fill?: string
   unit?: string
 }
 
@@ -58,8 +61,8 @@ export function ScopeChart({
     for (const s of series) {
       if (s.band) {
         seriesOpts.push(
-          { stroke: 'transparent', fill: `color-mix(in srgb, ${s.color} 16%, transparent)`, points: { show: false }, label: `${s.label} lo` },
-          { stroke: 'transparent', fill: `color-mix(in srgb, ${s.color} 16%, transparent)`, points: { show: false }, label: `${s.label} hi` },
+          { stroke: 'transparent', fill: s.fill ?? CANVAS.liveFill, points: { show: false }, label: `${s.label} lo` },
+          { stroke: 'transparent', fill: s.fill ?? CANVAS.liveFill, points: { show: false }, label: `${s.label} hi` },
         )
       }
       seriesOpts.push({
@@ -88,16 +91,16 @@ export function ScopeChart({
         },
         axes: [
           {
-            stroke: 'var(--ink-2)',
-            grid: { stroke: 'var(--line-0)', width: 1 },
-            ticks: { stroke: 'var(--line-0)', width: 1 },
+            stroke: CANVAS.ink2,
+            grid: { stroke: CANVAS.line0, width: 1 },
+            ticks: { stroke: CANVAS.line0, width: 1 },
             font: '11px "IBM Plex Mono", monospace',
             values: (_u, splits) => splits.map((t) => fmtClock(t, 'm')),
             size: 24,
           },
           {
-            stroke: 'var(--ink-2)',
-            grid: { stroke: 'var(--line-0)', width: 1 },
+            stroke: CANVAS.ink2,
+            grid: { stroke: CANVAS.line0, width: 1 },
             ticks: { show: false },
             font: '11px "IBM Plex Mono", monospace',
             size: 44,
@@ -117,7 +120,7 @@ export function ScopeChart({
               const ctx = u.ctx
               const yPos = u.valToPos(limit, 'y', true)
               ctx.save()
-              ctx.strokeStyle = 'var(--high)'
+              ctx.strokeStyle = CANVAS.high
               ctx.setLineDash([4, 3])
               ctx.lineWidth = 1
               ctx.beginPath()

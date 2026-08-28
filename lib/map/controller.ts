@@ -3,7 +3,8 @@
 import { Map as MapLibreMap, setWorkerUrl, type GeoJSONSource } from 'maplibre-gl'
 import type { ExpressionSpecification } from '@maplibre/maplibre-gl-style-spec'
 import type { IncidentSummary, RiskCell, SourceDevice } from '@/lib/api/schemas'
-import { DOMAIN_GLYPH } from '@/lib/tokens'
+import { CANVAS, DOMAIN_GLYPH } from '@/lib/tokens'
+import { cellToBoundary } from 'h3-js'
 import { fovWedge } from '@/lib/geo/build'
 import { BENGALURU_CENTER } from '@/lib/geo/bengaluru'
 import { registerArrowImage, registerGlyphImages } from './images'
@@ -49,11 +50,11 @@ export const LAYER = {
 const PRIORITY_EXPR: ExpressionSpecification = [
   'match',
   ['get', 'priority'],
-  'CRITICAL', '#f85149',
-  'HIGH', '#db6d28',
-  'MEDIUM', '#d29922',
-  'LOW', '#8b949e',
-  '#6e7681',
+  'CRITICAL', CANVAS.critical,
+  'HIGH', CANVAS.high,
+  'MEDIUM', CANVAS.medium,
+  'LOW', CANVAS.low,
+  CANVAS.info,
 ]
 
 export interface MapCallbacks {
@@ -104,18 +105,13 @@ export class MapController {
     })
     this.map = map
     map.touchZoomRotate.disableRotation()
+    /* Exposed deliberately, not as debug leftovers: the acceptance suite asserts
+       that basemap roads, camera wedges and clusters actually rendered, and there
+       is no way to ask that question from outside the map instance. */
     ;(window as unknown as { __csmap?: MapLibreMap }).__csmap = map
     map.on('error', (e) => {
-      console.error('[map error]', e.error?.message ?? String(e))
+      console.error('[map]', e.error?.message ?? String(e))
     })
-    const w = window as unknown as { __csevents?: string[] }
-    w.__csevents = []
-    for (const evt of ['dataloading', 'sourcedata', 'styledata', 'idle', 'load']) {
-      map.on(evt as 'load', (ev: unknown) => {
-        const e = ev as { sourceId?: string; isSourceLoaded?: boolean }
-        w.__csevents!.push(`${evt}:${e?.sourceId ?? ''}:${e?.isSourceLoaded ?? ''}`)
-      })
-    }
 
     /* style.load fires on every setStyle, so installation is idempotent and
        lives in one place. Adding layers from an unrelated effect is how map apps
@@ -164,7 +160,7 @@ export class MapController {
       source: SRC.risk,
       layout: { visibility: 'none' },
       paint: {
-        'fill-color': ['interpolate', ['linear'], ['get', 'risk'], 0, '#1f242b', 0.4, '#d29922', 0.7, '#db6d28', 1, '#f85149'],
+        'fill-color': ['interpolate', ['linear'], ['get', 'risk'], 0, CANVAS.line0, 0.4, CANVAS.medium, 0.7, CANVAS.high, 1, CANVAS.critical],
         'fill-opacity': ['interpolate', ['linear'], ['get', 'risk'], 0, 0.05, 1, 0.35],
       },
     })
@@ -173,7 +169,7 @@ export class MapController {
       id: LAYER.fov,
       type: 'fill',
       source: SRC.fov,
-      paint: { 'fill-color': '#58a6ff', 'fill-opacity': 0.18 },
+      paint: { 'fill-color': CANVAS.live, 'fill-opacity': 0.18 },
     })
 
     map.addLayer({
@@ -182,7 +178,7 @@ export class MapController {
       source: SRC.sensors,
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 1.6, 16, 3.4],
-        'circle-color': ['case', ['==', ['get', 'state'], 'up'], '#3fb950', ['==', ['get', 'state'], 'down'], '#f85149', '#d29922'],
+        'circle-color': ['case', ['==', ['get', 'state'], 'up'], CANVAS.ok, ['==', ['get', 'state'], 'down'], CANVAS.critical, CANVAS.medium],
         'circle-opacity': 0.9,
       },
     })
@@ -227,8 +223,8 @@ export class MapController {
       filter: ['has', 'point_count'],
       layout: { visibility: 'none' },
       paint: {
-        'circle-color': '#14171b',
-        'circle-stroke-color': '#2a313a',
+        'circle-color': CANVAS.bg2,
+        'circle-stroke-color': CANVAS.line1,
         'circle-stroke-width': 1,
         'circle-radius': ['step', ['get', 'point_count'], 12, 20, 16, 80, 20, 300, 26],
       },
@@ -242,7 +238,7 @@ export class MapController {
       paint: {
         'circle-radius': 13,
         'circle-color': 'rgba(0,0,0,0)',
-        'circle-stroke-color': '#e8eaed',
+        'circle-stroke-color': CANVAS.ink0,
         'circle-stroke-width': 1,
       },
     })
@@ -255,7 +251,7 @@ export class MapController {
       paint: {
         'circle-radius': 14,
         'circle-color': 'rgba(0,0,0,0)',
-        'circle-stroke-color': '#f85149',
+        'circle-stroke-color': CANVAS.critical,
         'circle-stroke-width': 2,
         'circle-stroke-opacity': 1,
       },
@@ -267,7 +263,7 @@ export class MapController {
       source: SRC.incidents,
       paint: {
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 7, 16, 11],
-        'circle-color': '#0e1013',
+        'circle-color': CANVAS.bg1,
         'circle-stroke-color': PRIORITY_EXPR,
         'circle-stroke-width': 2,
         'circle-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 1, 0.92],
@@ -506,30 +502,15 @@ export class MapController {
       map.setLayoutProperty(LAYER.risk, 'visibility', visible ? 'visible' : 'none')
     }
     if (!visible) return
-    const size = 0.33 / 34
-    const sizeY = 0.28 / 26
-    const features: GeoJSON.Feature[] = cells.map((c) => {
-      const x = Number.parseInt(c.h3.slice(4, 7), 16)
-      const y = Number.parseInt(c.h3.slice(7, 10), 16)
-      const lon = 77.45 + x * size
-      const lat = 12.83 + y * sizeY
-      return {
-        type: 'Feature',
-        geometry: {
-          type: 'Polygon',
-          coordinates: [
-            [
-              [lon, lat],
-              [lon + size, lat],
-              [lon + size, lat + sizeY],
-              [lon, lat + sizeY],
-              [lon, lat],
-            ],
-          ],
-        },
-        properties: { risk: c.risk, h3: c.h3 },
-      }
-    })
+    const features: GeoJSON.Feature[] = cells.map((c) => ({
+      type: 'Feature',
+      geometry: {
+        type: 'Polygon',
+        /* cellToBoundary in GeoJSON order returns [lng, lat] and closes the ring. */
+        coordinates: [cellToBoundary(c.h3, true)],
+      },
+      properties: { risk: c.risk, h3: c.h3, baseline: c.baseline },
+    }))
     this.queueSourceData(SRC.risk, { type: 'FeatureCollection', features })
   }
 

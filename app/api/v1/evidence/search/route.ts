@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server'
 import type { EvidenceItem, EvidenceSearchResult } from '@/lib/api/schemas'
-import { guard, json } from '../../_lib/handler'
+import { fixturesDisabled, json } from '../../_lib/handler'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -11,8 +11,7 @@ export const dynamic = 'force-dynamic'
  * enhancement spec puts on F10 and not something the client is trusted to hide.
  */
 export async function POST(req: NextRequest) {
-  const blocked = guard()
-  if (blocked) return blocked
+  if (process.env.NEXT_PUBLIC_DATA_MODE !== 'fixtures') return fixturesDisabled()
   const started = Date.now()
   const { getWorld } = await import('@/lib/fixtures/world')
   const { evidenceForIncident, parseQuery, scoreItem } = await import('@/lib/fixtures/evidence')

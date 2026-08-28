@@ -18,6 +18,7 @@ export function Drawer({
   subtitle,
   actions,
   children,
+  ariaLabel,
   storageKey = 'cs.drawer.width',
   min = 360,
   max = 620,
@@ -28,6 +29,8 @@ export function Drawer({
   subtitle?: React.ReactNode
   actions?: React.ReactNode
   children: React.ReactNode
+  /** Required when the title is composed of elements rather than a string. */
+  ariaLabel?: string
   storageKey?: string
   min?: number
   max?: number
@@ -62,7 +65,7 @@ export function Drawer({
   return (
     <aside
       ref={panel}
-      aria-label={typeof title === 'string' ? title : 'detail'}
+      aria-label={ariaLabel ?? (typeof title === 'string' ? title : 'detail')}
       className="relative flex h-full flex-none flex-col border-l border-[var(--line-0)] bg-[var(--bg-1)]"
       style={{ width }}
     >

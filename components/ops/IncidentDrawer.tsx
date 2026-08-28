@@ -83,6 +83,7 @@ export function IncidentDrawer({
       <Drawer
         open
         onClose={onClose}
+        ariaLabel="incident detail"
         title={
           <>
             <PriorityTag priority={incident.priority} blink={incident.priority === 'CRITICAL' && !incident.acknowledged} />

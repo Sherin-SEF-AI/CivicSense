@@ -1,12 +1,11 @@
 import type { NextRequest } from 'next/server'
-import { guard, json } from '../../_lib/handler'
+import { fixturesDisabled, json } from '../../_lib/handler'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ incidentId: string }> }) {
-  const blocked = guard()
-  if (blocked) return blocked
+  if (process.env.NEXT_PUBLIC_DATA_MODE !== 'fixtures') return fixturesDisabled()
   const { incidentId } = await ctx.params
   const { getWorld, withMutations } = await import('@/lib/fixtures/world')
   const { buildForensics } = await import('@/lib/fixtures/forensics')

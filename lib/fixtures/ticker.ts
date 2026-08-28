@@ -6,6 +6,7 @@ import { getHub } from './hub'
 import { istHour, severityOf, SLA_SECONDS } from './incidents'
 import { chance, intRange, mulberry32, pick, range, ulid } from './rng'
 import { countsByBand, getWorld, withMutations } from './world'
+import { latLngToCell } from 'h3-js'
 import { sampleAlong } from '@/lib/geo/build'
 import { ZONE_SEEDS } from '@/lib/geo/bengaluru'
 
@@ -75,7 +76,7 @@ function spawnIncident(now: number): IncidentSummary {
     zone_id: zone.id,
     zone_label: zone.label,
     position: { lat: Math.round(p[1] * 1e6) / 1e6, lon: Math.round(p[0] * 1e6) / 1e6 },
-    h3: `8a61${(Math.abs(Math.round(p[0] * 1e4)) % 4096).toString(16).padStart(3, '0')}${(Math.abs(Math.round(p[1] * 1e4)) % 4096).toString(16).padStart(3, '0')}ffff`,
+    h3: latLngToCell(p[1], p[0], 9),
     detected_at: now,
     updated_at: now,
     source_count: 1,

@@ -2,6 +2,7 @@ import 'server-only'
 import type { IncidentStatus, IncidentSummary, PriorityBand, SourceType } from '@/lib/api/schemas'
 import { bandForScore } from '@/lib/api/schemas/common'
 import { HOTSPOTS, ZONE_SEEDS } from '@/lib/geo/bengaluru'
+import { latLngToCell } from 'h3-js'
 import { pointInRing, sampleAlong, zonePolygon, type Position } from '@/lib/geo/build'
 import { SITUATIONS, type SituationType } from './catalog'
 import { chance, diurnal, gauss, intRange, mulberry32, pick, range, subSeed, ulid, weighted } from './rng'
@@ -188,7 +189,7 @@ export function buildIncidents({ seed, now, count, lines }: Args): IncidentSumma
       zone_id: zone.id,
       zone_label: zone.label,
       position: { lat: Math.round(lat * 1e6) / 1e6, lon: Math.round(lon * 1e6) / 1e6 },
-      h3: `8a61${(Math.abs(Math.round(lon * 1e4)) % 4096).toString(16).padStart(3, '0')}${(Math.abs(Math.round(lat * 1e4)) % 4096).toString(16).padStart(3, '0')}ffff`,
+      h3: latLngToCell(lat, lon, 9),
       detected_at: Math.round(t),
       updated_at: Math.round(t + intRange(rnd, 5, 900) * 1000),
       source_count: types.size,

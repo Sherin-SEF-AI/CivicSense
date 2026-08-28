@@ -1,12 +1,11 @@
 import type { SourceDetail } from '@/lib/api/schemas'
-import { guard, json } from '../../_lib/handler'
+import { fixturesDisabled, json } from '../../_lib/handler'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const blocked = guard()
-  if (blocked) return blocked
+  if (process.env.NEXT_PUBLIC_DATA_MODE !== 'fixtures') return fixturesDisabled()
   const { id } = await ctx.params
   const { getWorld } = await import('@/lib/fixtures/world')
   const { mulberry32, subSeed, intRange, range, pick } = await import('@/lib/fixtures/rng')

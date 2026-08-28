@@ -1,5 +1,6 @@
 import type { Map as MapLibreMap } from 'maplibre-gl'
 import { GLYPHS, type GlyphName } from '@/components/glyphs'
+import { CANVAS } from '@/lib/tokens'
 
 /**
  * Turns CS Glyphs into map images.
@@ -31,7 +32,7 @@ function rasterize(name: GlyphName, color: string, dpr: number): ImageData | nul
   return ctx.getImageData(0, 0, px, px)
 }
 
-export function registerGlyphImages(map: MapLibreMap, names: GlyphName[], color = '#e8eaed') {
+export function registerGlyphImages(map: MapLibreMap, names: GlyphName[], color = CANVAS.ink0) {
   const dpr = Math.min(3, Math.max(1, window.devicePixelRatio || 1))
   for (const name of names) {
     const id = `glyph-${name}`
@@ -43,7 +44,7 @@ export function registerGlyphImages(map: MapLibreMap, names: GlyphName[], color 
 }
 
 /** A filled triangle for patrol heading, drawn the same way for consistency. */
-export function registerArrowImage(map: MapLibreMap, id = 'patrol-arrow', color = '#58a6ff') {
+export function registerArrowImage(map: MapLibreMap, id = 'patrol-arrow', color = CANVAS.live) {
   if (map.hasImage(id)) return
   const dpr = Math.min(3, Math.max(1, window.devicePixelRatio || 1))
   const px = 18 * dpr

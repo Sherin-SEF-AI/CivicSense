@@ -54,6 +54,7 @@ export function CustodyDrawer() {
           custody
         </span>
       }
+      ariaLabel="custody"
       subtitle={hash ?? undefined}
       storageKey="cs.custody.width"
     >

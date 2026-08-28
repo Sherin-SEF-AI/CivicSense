@@ -1,5 +1,6 @@
 import 'server-only'
 import type { Domain, Intervention, InterventionOutcome, Warning, WarningLevel } from '@/lib/api/schemas'
+import { latLngToCell } from 'h3-js'
 import { HOTSPOTS, ZONE_SEEDS } from '@/lib/geo/bengaluru'
 import { chance, gauss, intRange, mulberry32, pick, range, subSeed, ulid, weighted } from './rng'
 
@@ -153,7 +154,7 @@ export function buildWarnings({ seed, now }: { seed: number; now: number }): War
       zone_id: zone.id,
       zone_label: zone.label,
       position: { lat: zone.center[1], lon: zone.center[0] },
-      h3: `8a61${(i * 37).toString(16).padStart(6, '0')}ffff`,
+      h3: latLngToCell(zone.center[1], zone.center[0], 8),
       headline: pick(rnd, HEADLINES[domain]),
       issued_at: issued,
       horizon_h: horizon,
@@ -197,9 +198,11 @@ export function buildOutcomes({ seed, now }: { seed: number; now: number }): Int
 }
 
 /**
- * The risk surface. Cells are seeded from the hotspot field and the domain, so
- * the map shows the same shape a city's incident history would produce rather
- * than uniform noise.
+ * The risk surface.
+ *
+ * Real H3 cells at resolution 8, not a square grid wearing an H3 identifier.
+ * The intensity is sampled from the hotspot field so the surface has the shape a
+ * city's incident history produces rather than uniform noise.
  */
 export function buildRisk(
   seed: number,
@@ -213,31 +216,39 @@ export function buildRisk(
   resolution: number
   cells: { h3: string; risk: number; baseline: number; projected: number; domain: Domain }[]
 } {
-  const cells: { h3: string; risk: number; baseline: number; projected: number; domain: Domain }[] = []
-  const cols = 34
-  const rows = 26
+  const RESOLUTION = 8
+  const seen = new Map<string, { lon: number; lat: number }>()
+  const cols = 60
+  const rows = 46
   for (let x = 0; x < cols; x++) {
     for (let y = 0; y < rows; y++) {
-      const rnd = mulberry32(subSeed(seed, `risk-${domain ?? 'all'}-${horizon}`, x * 100 + y))
       const lon = 77.45 + (x + 0.5) * (0.33 / cols)
       const lat = 12.83 + (y + 0.5) * (0.28 / rows)
-      let field = 0
-      for (const [hx, hy, w] of HOTSPOTS) {
-        const d = Math.hypot(lon - hx, lat - hy)
-        field += w * Math.exp(-(d * d) / 0.00035)
-      }
-      const baseline = Math.min(1, field * 0.55 + rnd() * 0.12)
-      if (baseline < 0.06) continue
-      const growth = 1 + (horizon / 24) * (rnd() - 0.35) * 0.9
-      const projected = Math.min(1, baseline * growth)
-      cells.push({
-        h3: `8a61${x.toString(16).padStart(3, '0')}${y.toString(16).padStart(3, '0')}ffff`,
-        risk: Math.round(projected * 1000) / 1000,
-        baseline: Math.round(baseline * 1000) / 1000,
-        projected: Math.round(projected * 1000) / 1000,
-        domain: domain ?? DOMAINS[(x + y) % DOMAINS.length]!,
-      })
+      const cell = latLngToCell(lat, lon, RESOLUTION)
+      if (!seen.has(cell)) seen.set(cell, { lon, lat })
     }
   }
-  return { domain, horizon_h: horizon, generated_at: now, resolution: 9, cells }
+
+  const cells: { h3: string; risk: number; baseline: number; projected: number; domain: Domain }[] = []
+  let index = 0
+  for (const [cell, centre] of seen) {
+    const rnd = mulberry32(subSeed(seed, `risk-${domain ?? 'all'}-${horizon}`, index++))
+    let field = 0
+    for (const [hx, hy, w] of HOTSPOTS) {
+      const d = Math.hypot(centre.lon - hx, centre.lat - hy)
+      field += w * Math.exp(-(d * d) / 0.0006)
+    }
+    const baseline = Math.min(1, field * 0.6 + rnd() * 0.1)
+    if (baseline < 0.08) continue
+    const growth = 1 + (horizon / 24) * (rnd() - 0.35) * 0.9
+    const projected = Math.min(1, baseline * growth)
+    cells.push({
+      h3: cell,
+      risk: Math.round(projected * 1000) / 1000,
+      baseline: Math.round(baseline * 1000) / 1000,
+      projected: Math.round(projected * 1000) / 1000,
+      domain: domain ?? DOMAINS[index % DOMAINS.length]!,
+    })
+  }
+  return { domain, horizon_h: horizon, generated_at: now, resolution: RESOLUTION, cells }
 }

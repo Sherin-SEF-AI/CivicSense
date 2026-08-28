@@ -1,14 +1,13 @@
 import type { NextRequest } from 'next/server'
 import type { Domain } from '@/lib/api/schemas'
 import { DomainSchema } from '@/lib/api/schemas/common'
-import { guard, json } from '../../_lib/handler'
+import { fixturesDisabled, json } from '../../_lib/handler'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
-  const blocked = guard()
-  if (blocked) return blocked
+  if (process.env.NEXT_PUBLIC_DATA_MODE !== 'fixtures') return fixturesDisabled()
   const { getWorld } = await import('@/lib/fixtures/world')
   const { buildRisk } = await import('@/lib/fixtures/predict')
   const w = getWorld()

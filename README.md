@@ -55,10 +55,28 @@ The app comes up on `http://localhost:3111` against a fixture backend, with no e
 no API key. Everything is local: the basemap, the evidence media and the data.
 
 ```bash
-npm run typecheck    # tsc, zero errors expected
-npm run lint         # eslint, zero warnings expected
-npm run build        # production build
+npm run typecheck      # tsc, zero errors expected
+npm run lint           # eslint, zero warnings expected
+npm run audit:design   # design language rules, see below
+npm run e2e            # acceptance suite, needs Google Chrome installed
+npm run verify         # all four
+npm run build          # production build
+npm run check:bundle   # asserts a live build contains no fixture code
 ```
+
+### The acceptance suite
+
+The criteria in the brief are executable rather than aspirational. `e2e/` asserts
+that an operator can go from the feed to an acknowledged and dispatched incident
+in under five seconds using only the keyboard, that four sources hold lockstep
+with frame-accurate stepping, that a hash chip opens custody and verification
+recomputes the chain, that an incident exports a standalone offline bundle, that
+the map holds its frame budget while panning with the full incident set, and that
+no route logs a console error.
+
+`npm run audit:design` enforces the design language itself: one motion duration
+and no easing curves, no raw hex outside the two token files, no em-dashes in
+operator copy, and monospace on every numeric readout.
 
 ### Regenerating the generated assets
 
