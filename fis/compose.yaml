@@ -84,6 +84,41 @@ services:
     volumes:
       - ./containers/init-buckets.sh:/init/init-buckets.sh:ro
 
+  # The API and the workers share one image, so an operator contract cannot
+  # differ between the process that describes it and the process that runs it.
+  fis-api:
+    image: fis-operator-base:dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      FIS_PG_DSN: postgresql://fis:${FIS_PG_PASSWORD:-fis-local-only}@postgres:5432/fis
+      FIS_REDIS_URL: redis://redis:6379/0
+      FIS_MINIO_ENDPOINT: minio:9000
+      FIS_MINIO_USER: ${FIS_MINIO_USER:-fisadmin}
+      FIS_MINIO_PASSWORD: ${FIS_MINIO_PASSWORD:-fis-local-only}
+      FIS_SERVICE_SECRET: ${FIS_SERVICE_SECRET:-fis-local-only-secret}
+      FIS_ENV: ${FIS_ENV:-dev}
+    ports:
+      - "${FIS_API_PORT:-8099}:8000"
+    volumes:
+      # The console's evidence store, read only. FIS reads the original bytes
+      # and never writes to or deletes from it.
+      - ../data/evidence:/vault/legacy:ro
+    command:
+      - sh
+      - -c
+      - "python -m fis.db.migrate && uvicorn fis.api.app:app --host 0.0.0.0 --port 8000 --no-access-log"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
 volumes:
   pgdata:
   redisdata:

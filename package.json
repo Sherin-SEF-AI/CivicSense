@@ -27,8 +27,9 @@
     "fis:lint": "python3 fis/ci/lint_operators.py",
     "fis:determinism": "python3 fis/ci/determinism.py",
     "fis:gate": "docker exec -i civicsense-fis-postgres-1 psql -U fis -d fis -f - < fis/ci/gate.sql",
-    "verify:fis": "npm run fis:lint && npm run fis:build && npm run fis:determinism && npm run fis:acceptance",
-    "fis:acceptance": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python3 fis/ci/acceptance_metrology.py"
+    "verify:fis": "npm run fis:lint && npm run fis:build && npm run fis:determinism && npm run fis:acceptance && npm run e2e:fis",
+    "fis:acceptance": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python3 fis/ci/acceptance_metrology.py",
+    "e2e:fis": "playwright test -c playwright.fis.config.ts"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

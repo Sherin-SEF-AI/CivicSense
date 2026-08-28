@@ -53,6 +53,11 @@ export default defineConfig({
     env: {
       CIVICSENSE_DB: '.e2e/civicsense.db',
       CIVICSENSE_EVIDENCE: '.e2e/evidence',
+      /* The forensic tier is deliberately detached for this suite. Its absence
+         is a supported configuration that the console renders, and the whole
+         acceptance suite must stay runnable on a machine with no Docker. The
+         specs that need FIS live in e2e-fis and are run separately. */
+      FIS_BASE_URL: '',
     },
     /* next dev reads .env.local, so the suite's server picks up GROQ_API_KEY if
        one is set and exercises the configured branch. */

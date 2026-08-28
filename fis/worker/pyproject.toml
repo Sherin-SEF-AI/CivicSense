@@ -9,6 +9,7 @@ requires-python = ">=3.12"
 # a result without changing anything anyone can point at.
 dependencies = [
   "psycopg[binary]==3.2.10",
+  "psycopg-pool==3.2.6",
   "redis==5.2.1",
   "fastapi==0.115.6",
   "uvicorn[standard]==0.34.0",

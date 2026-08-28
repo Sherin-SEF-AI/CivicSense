@@ -12,3 +12,4 @@ public/vendor
 .osm-cache
 data
 .e2e
+.e2e-fis
