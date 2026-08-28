@@ -11,7 +11,7 @@
     "glyphs": "tsx scripts/gen-glyph-sprite.ts",
     "audit:design": "tsx scripts/audit-design.ts",
     "sync:map": "node scripts/sync-map-worker.mjs",
-    "e2e": "playwright test",
+    "e2e": "rm -rf .e2e && playwright test",
     "verify": "npm run typecheck && npm run lint && npm run audit:design && npm run e2e",
     "osm": "node --max-old-space-size=8192 scripts/extract-osm.mjs",
     "bootstrap": "tsx --conditions react-server scripts/bootstrap.ts"

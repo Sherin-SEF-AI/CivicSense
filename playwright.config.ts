@@ -16,7 +16,7 @@ export default defineConfig({
   workers: 1,
   reporter: [['list']],
   use: {
-    baseURL: 'http://localhost:3111',
+    baseURL: 'http://localhost:3112',
     trace: 'retain-on-failure',
     viewport: { width: 1600, height: 1000 },
   },
@@ -32,10 +32,22 @@ export default defineConfig({
       },
     },
   ],
+  /**
+   * The suite runs against its own database and evidence store.
+   *
+   * It creates real sources and ingests real bytes through the production
+   * endpoints, so it must not write into the deployment's store. reuseExistingServer
+   * is off for the same reason: a server already running on the dev database would
+   * be the wrong target.
+   */
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3111/api/v1/system/health',
-    reuseExistingServer: true,
-    timeout: 120_000,
+    command: 'npm run bootstrap && next dev -p 3112',
+    url: 'http://localhost:3112/api/v1/system/health',
+    reuseExistingServer: false,
+    timeout: 180_000,
+    env: {
+      CIVICSENSE_DB: '.e2e/civicsense.db',
+      CIVICSENSE_EVIDENCE: '.e2e/evidence',
+    },
   },
 })

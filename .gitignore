@@ -11,3 +11,4 @@ playwright-report
 public/vendor
 .osm-cache
 data
+.e2e
