@@ -193,15 +193,33 @@ export async function ingestClip(
   return (await response.json()) as IngestResult
 }
 
-/** Creates an incident through the real path and returns its id. */
+/**
+ * Creates an incident through the real path and returns its id.
+ *
+ * Each call gets its own patch of the city. Fusion is deliberate platform
+ * behaviour: two devices reporting the same situation in the same H3
+ * neighbourhood inside the window join one incident. That is right, and it also
+ * means two specs seeding at the same coordinates seconds apart get the same
+ * incident and quietly contaminate each other. The offset is derived from the
+ * source id so it is stable per call and far outside the fusion neighbourhood.
+ */
 export async function seedIncident(request: APIRequestContext, sourceId?: string): Promise<string> {
-  const id = sourceId ?? `E2E-CAM-${Date.now()}`
-  await registerSource(request, id)
+  const id = sourceId ?? `E2E-CAM-${Date.now()}-${Math.floor(Math.random() * 1e6)}`
+
+  let seed = 0
+  for (const ch of id) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0
+  /* Roughly 1 km steps across a 20 by 20 grid inside the pilot area. */
+  const lat = 12.92 + ((seed >>> 5) % 20) * 0.009
+  const lon = 77.55 + (seed % 20) * 0.009
+
+  await registerSource(request, id, { lat, lon })
   const result = await ingest(request, id, {
     classes: ['motorcycle', 'person'],
     trigger: 'class:no_helmet',
     situation_key: 'no-helmet',
     affected: 2,
+    lat,
+    lon,
   })
   if (!result.incident_id) throw new Error('the trigger did not form an incident')
   return result.incident_id

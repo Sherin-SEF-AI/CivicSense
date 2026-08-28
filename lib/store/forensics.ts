@@ -4,6 +4,10 @@ import { all, get } from '@/lib/db'
 import { observationsForIncident } from './observations'
 import { getIncidentRow } from './incidents'
 import { conflictsForIncident, entitiesForIncident, kinematicsForIncident } from './tracks'
+import { verifyCustodyChain } from '@/lib/db'
+import { verifyEvidence } from '@/lib/ingest/media'
+import type { SignatureVerdict } from '@/lib/vault/signing'
+import type { AuthenticityReport } from '@/lib/api/schemas'
 import { hypothesesForIncident } from './hypotheses'
 
 /**
@@ -15,7 +19,20 @@ import { hypothesesForIncident } from './hypotheses'
  * layer produced one.
  */
 
-export function buildForensics(incidentId: string, investigationFlag: boolean): ForensicsBundle | null {
+/* Async because the authenticity battery and the measurement engines become
+   out-of-process calls. Today every branch is still synchronous; the signature
+   changes now so that the ripple is separated from the behaviour change. */
+/** A recorded signature verdict, mapped to the tree node's authenticity word. */
+function verdictOf(verdict: SignatureVerdict): ForensicsBundle['tree'][number]['authenticity'] {
+  if (verdict === 'verified') return 'verified'
+  if (verdict === 'bad_signature') return 'inconsistent'
+  return 'consistent'
+}
+
+export async function buildForensics(
+  incidentId: string,
+  investigationFlag: boolean,
+): Promise<ForensicsBundle | null> {
   const row = getIncidentRow(incidentId)
   if (!row) return null
 
@@ -28,6 +45,7 @@ export function buildForensics(incidentId: string, investigationFlag: boolean): 
       : [anchor - 120_000, anchor + 180_000]
 
   const tree: ForensicsBundle['tree'] = []
+  const signatures = new Map<string, { verdict: SignatureVerdict; detail: string; key_id: string | null }>()
   const bySource = new Map<string, { segments: MediaSegment[]; source: (typeof observations)[number] }>()
 
   for (const observation of observations) {
@@ -39,6 +57,16 @@ export function buildForensics(incidentId: string, investigationFlag: boolean): 
     if (!evidence) continue
 
     const isVideo = evidence.media_type.startsWith('video/')
+    const signature = get<{ verdict: string; detail: string; key_id: string | null }>(
+      'SELECT verdict, detail, key_id FROM device_signatures WHERE sha256 = ?',
+      [observation.content_ref],
+    )
+    signatures.set(evidence.sha256, {
+      verdict: (signature?.verdict ?? 'unverified') as SignatureVerdict,
+      detail: signature?.detail ?? 'this object predates signature verification',
+      key_id: signature?.key_id ?? null,
+    })
+
     tree.push({
       evidence_id: evidence.sha256,
       source_id: observation.source.source_id,
@@ -48,8 +76,10 @@ export function buildForensics(incidentId: string, investigationFlag: boolean): 
       t_start: observation.capture.t_start,
       t_end: observation.capture.t_end,
       hash: evidence.sha256,
-      /* Verified means the device signed it. Anything else is merely present. */
-      authenticity: observation.provenance.device_signature ? 'verified' : 'consistent',
+      /* Verified means a signature was checked against an enrolled key and it
+         held. A claimed but failing signature is inconsistent, which is a
+         stronger statement than merely unverified and must not be softened. */
+      authenticity: verdictOf((signature?.verdict ?? 'unverified') as SignatureVerdict),
       bytes: evidence.bytes,
       thumb_url: `/api/v1/evidence/${evidence.sha256}/content`,
     })
@@ -180,29 +210,82 @@ export function buildForensics(incidentId: string, investigationFlag: boolean): 
     conflicts: conflictsForIncident(incidentId),
     causal: pkg?.causal ?? { nodes: [], edges: [], root_causes: [] },
     hypotheses: hypothesesForIncident(incidentId),
-    authenticity: tree.map((node) => ({
-      evidence_id: node.evidence_id,
-      verdict: node.authenticity,
-      tests: [
-        {
-          test: 'content hash',
-          result: 'pass' as const,
-          detail: `stored under sha-256 ${node.hash.slice(0, 16)}, recomputable from the bytes on disk`,
-          standard: 'ISO/IEC 27037',
-        },
-        {
-          test: 'device signature',
-          result: node.authenticity === 'verified' ? ('pass' as const) : ('inconclusive' as const),
-          detail:
-            node.authenticity === 'verified'
-              ? 'the capturing device signed this object at capture'
-              : 'no device signature was supplied at ingest, so provenance rests on the ingest custody entry alone',
-          standard: 'ISO/IEC 27037',
-        },
-      ],
-      hash: node.hash,
-      device_signature: null,
-    })),
+    authenticity: await Promise.all(
+      tree.map(async (node) => {
+        const signature = signatures.get(node.evidence_id) ?? {
+          verdict: 'unverified' as SignatureVerdict,
+          detail: 'no verification record exists for this object',
+          key_id: null,
+        }
+
+        /* The content test is performed here rather than asserted. It used to
+           report an unconditional pass with detail text claiming the bytes were
+           recomputable, while nothing recomputed them. */
+        const content = await verifyEvidence(node.evidence_id)
+        const chain = verifyCustodyChain(node.evidence_id)
+        const merkle = get<{ root: string; leaf_count: number }>(
+          'SELECT root, leaf_count FROM evidence_merkle WHERE sha256 = ?',
+          [node.evidence_id],
+        )
+
+        const tests: AuthenticityReport['tests'] = [
+          {
+            test: 'content hash',
+            result: content.ok ? 'pass' : content.recomputed === null ? 'inconclusive' : 'fail',
+            detail: content.ok
+              ? `the bytes on disk recompute to ${node.hash.slice(0, 16)}`
+              : content.recomputed === null
+                ? 'the stored object could not be read, so its digest could not be recomputed'
+                : `the bytes on disk hash to ${content.recomputed.slice(0, 16)}, not to the name they are stored under`,
+            standard: 'ISO/IEC 27037',
+          },
+          {
+            test: 'custody chain',
+            result: chain.valid ? 'pass' : 'fail',
+            detail: chain.valid
+              ? `${chain.entries} custody entries recompute from the evidence hash forward`
+              : `the custody chain breaks at entry ${chain.brokenAt}, so that entry and everything after it is not evidence of anything`,
+            standard: 'ISO/IEC 27042',
+          },
+          {
+            test: 'capture signature',
+            result:
+              signature.verdict === 'verified' ? 'pass' : signature.verdict === 'bad_signature' ? 'fail' : 'inconclusive',
+            detail: signature.detail,
+            standard: 'ISO/IEC 27037',
+          },
+        ]
+
+        if (merkle) {
+          tests.push({
+            test: 'chunk tree',
+            result: 'pass',
+            detail: `${merkle.leaf_count} chunk(s) under root ${merkle.root.slice(0, 16)}, so a single segment can be proved a member without the rest`,
+            standard: null,
+          })
+        }
+
+        /* The verdict is the worst mandatory result, never an average. One
+           failed test is a failed object. */
+        const failed = tests.some((t) => t.result === 'fail')
+        const inconclusive = tests.some((t) => t.result === 'inconclusive')
+        const verdict: AuthenticityReport['verdict'] = failed
+          ? 'inconsistent'
+          : signature.verdict === 'verified'
+            ? 'verified'
+            : inconclusive
+              ? 'consistent'
+              : 'consistent'
+
+        return {
+          evidence_id: node.evidence_id,
+          verdict,
+          tests,
+          hash: node.hash,
+          device_signature: signature.key_id,
+        }
+      }),
+    ),
     entities: entitiesForIncident(incidentId, investigationFlag),
     investigation_flag: investigationFlag,
   }

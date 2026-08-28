@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test'
+import { appendFileSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { collectConsoleErrors, hasFfmpeg, ingestClip, registerSource, renderClip, seedIncident } from './helpers'
 
 test.describe('forensics', () => {
@@ -77,8 +79,64 @@ test.describe('forensics', () => {
     await page.goto(`/forensics/${id}`)
     await page.waitForSelector('[aria-label="evidence tree"]')
     await page.locator('[aria-label="evidence tree"] button[title*="click to open custody"]').first().click()
-    await expect(page.getByRole('complementary', { name: 'custody' })).toBeVisible()
+    const drawer = page.getByRole('complementary', { name: 'custody' })
+    await expect(drawer).toBeVisible()
+
+    /* The chain must be the stored one, not a plausible-looking construction.
+       Every entry states whether it recomputes against the entry before it, and
+       the entries are the ones the ingest path actually wrote. */
+    await expect(drawer.getByText('capture', { exact: false }).first()).toBeVisible()
+    const entries = drawer.getByRole('listitem')
+    expect(await entries.count()).toBeGreaterThan(0)
+    expect(await drawer.getByText('does not recompute').count()).toBe(0)
+    expect(await drawer.getByText('recomputes', { exact: true }).count()).toBeGreaterThan(0)
+
+    const before = await entries.count()
     await page.getByRole('button', { name: 'recompute and verify' }).click()
     await expect(page.getByText('chain intact')).toBeVisible()
+
+    /* Both halves are reported separately, because bad bytes and a broken record
+       of who touched them are different failures. */
+    await expect(drawer.getByText('the bytes on disk hash to the name they are stored under')).toBeVisible()
+    await expect(drawer.getByText(/entries recomputed from the evidence hash forward/)).toBeVisible()
+
+    /* Asking is itself a custody event, so the chain grew by one. */
+    await expect(async () => {
+      expect(await entries.count()).toBe(before + 1)
+    }).toPass({ timeout: 5000 })
+    await expect(drawer.getByText('verify', { exact: false }).first()).toBeVisible()
+  })
+
+  test('a tampered object fails verification and says which half failed', async ({ page, request }) => {
+    const id = await seedIncident(request)
+
+    /* Reach into the store the way an attacker with disk access would: change
+       the bytes and leave the row alone. The hash must stop matching. */
+    const bundle = (await (await request.get(`/api/v1/forensics/${id}`)).json()) as {
+      tree: { evidence_id: string }[]
+    }
+    const sha = bundle.tree[0]!.evidence_id
+    /* Done directly on disk rather than through an endpoint. A forensics
+       platform should not ship a route that can alter evidence, not even one
+       fenced off for tests. */
+    const store = process.env.CIVICSENSE_EVIDENCE ?? '.e2e/evidence'
+    const dir = join(store, sha.slice(0, 2))
+    const file = readdirSync(dir).find((f) => f.startsWith(sha))
+    expect(file, `no stored object for ${sha}`).toBeTruthy()
+    const path = join(dir, file!)
+    const original = readFileSync(path)
+    appendFileSync(path, Buffer.from([0x00]))
+
+    await page.goto(`/forensics/${id}`)
+    await page.waitForSelector('[aria-label="evidence tree"]')
+    await page.locator('[aria-label="evidence tree"] button[title*="click to open custody"]').first().click()
+    await page.getByRole('button', { name: 'recompute and verify' }).click()
+
+    await expect(page.getByText('chain broken')).toBeVisible()
+    await expect(page.getByText('the bytes on disk do not hash to their stored name')).toBeVisible()
+    /* The custody record itself was not touched, so it must still verify. */
+    await expect(page.getByText(/entries recomputed from the evidence hash forward/)).toBeVisible()
+
+    writeFileSync(path, original)
   })
 })

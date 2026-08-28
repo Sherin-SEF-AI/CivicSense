@@ -9,7 +9,7 @@ import type {
   ModelTraceRow,
   SceneUnderstanding,
 } from '@/lib/api/schemas'
-import { all, get } from '@/lib/db'
+import { all, get, verifyCustodyChain } from '@/lib/db'
 import { SITUATION_BY_KEY } from '@/lib/config/situations'
 import { call, GroqUnconfigured, isConfigured, type Message } from '@/lib/groq/client'
 import { observationsForIncident } from '@/lib/store/observations'
@@ -531,16 +531,35 @@ function calibrationUncertainty(incidentId: string): number {
   return row?.worst ?? 0
 }
 
+/**
+ * Counted from recorded verification results, not from the presence of a string.
+ *
+ * This used to count observations carrying any `device_signature` value as
+ * verified, which meant an uploader could make the package say "verified" by
+ * putting arbitrary text in a field. Now each object contributes the verdict
+ * that was actually recorded when its signature was checked, and an object
+ * whose bytes no longer hash to their own name counts as inconsistent no matter
+ * what it was signed with.
+ */
 function authenticityCounts(incidentId: string) {
-  const total = get<{ c: number }>(
-    'SELECT COUNT(*) AS c FROM observations WHERE incident_id = ? AND content_ref IS NOT NULL',
+  const rows = all<{ content_ref: string }>(
+    'SELECT DISTINCT content_ref FROM observations WHERE incident_id = ? AND content_ref IS NOT NULL',
     [incidentId],
-  )?.c ?? 0
-  const signed = get<{ c: number }>(
-    'SELECT COUNT(*) AS c FROM observations WHERE incident_id = ? AND device_signature IS NOT NULL',
-    [incidentId],
-  )?.c ?? 0
-  return { verified: signed, consistent: total - signed, inconsistent: 0, unverifiable: 0 }
+  )
+
+  const counts = { verified: 0, consistent: 0, inconsistent: 0, unverifiable: 0 }
+  for (const row of rows) {
+    const signature = get<{ verdict: string }>('SELECT verdict FROM device_signatures WHERE sha256 = ?', [
+      row.content_ref,
+    ])
+    const chain = verifyCustodyChain(row.content_ref)
+
+    if (!chain.valid || signature?.verdict === 'bad_signature') counts.inconsistent += 1
+    else if (signature?.verdict === 'verified') counts.verified += 1
+    else if (signature?.verdict === 'no_key') counts.unverifiable += 1
+    else counts.consistent += 1
+  }
+  return counts
 }
 
 function admissibility(incidentId: string, citationValidity: number) {

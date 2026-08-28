@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
+import Database from 'better-sqlite3'
 import { collectConsoleErrors, seedIncident } from './helpers'
 
 /**
@@ -72,5 +73,78 @@ test.describe('exports', () => {
     const html = readFileSync(await download.path(), 'utf8')
     expect(html).toContain('<!doctype html>')
     expect(html).toContain(incidentId)
+  })
+
+  test('an export leaves a custody entry, an audit row and a manifest', async ({ page, request }) => {
+    const incidentId = await seedIncident(page.request)
+
+    const bundle = (await (await request.get(`/api/v1/forensics/${incidentId}`)).json()) as {
+      tree: { evidence_id: string }[]
+    }
+    const sha = bundle.tree[0]!.evidence_id
+
+    const before = (await (await request.get(`/api/v1/evidence/${sha}/custody`)).json()) as {
+      chain: { action: string }[]
+    }
+    expect(before.chain.some((e) => e.action === 'export')).toBe(false)
+
+    await page.goto(`/incident/${incidentId}`)
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'offline bundle' }).click(),
+    ])
+    const html = readFileSync(await download.path(), 'utf8')
+
+    /* The exported file states what was verified at the moment it was produced. */
+    expect(html).toContain('Export record')
+    expect(html).toContain(sha)
+    expect(html).toContain('rehashes')
+    expect(html).toContain('recomputes')
+    expect(html).toMatch(/manifest sha-256 [0-9a-f]{64}/)
+
+    /* And the platform recorded that it happened. This is the whole point: the
+       export used to run in the browser and leave no trace anywhere. */
+    const after = (await (await request.get(`/api/v1/evidence/${sha}/custody`)).json()) as {
+      chain: { action: string; actor: string; purpose: string; recomputes: boolean }[]
+      hash_chain_valid: boolean
+    }
+    const entry = after.chain.find((e) => e.action === 'export')
+    expect(entry, 'the export must appear in the custody chain').toBeTruthy()
+    expect(entry!.purpose).toContain('offline')
+    expect(entry!.recomputes).toBe(true)
+    expect(after.hash_chain_valid).toBe(true)
+
+    const admin = (await (await request.get('/api/v1/admin')).json()) as {
+      audit: { action: string; subject: string }[]
+      audit_chain: { valid: boolean }
+    }
+    expect(admin.audit.some((r) => r.action === 'export.offline' && r.subject === `incident:${incidentId}`)).toBe(true)
+    expect(admin.audit_chain.valid).toBe(true)
+  })
+
+  test('the disclosure export needs the disclosure capability', async ({ request }) => {
+    const incidentId = await seedIncident(request)
+
+    /* A department user works their own queue. Nothing they do should be able to
+       put evidence in front of someone outside the organisation. */
+    const db = new Database(process.env.CIVICSENSE_DB ?? '.e2e/civicsense.db')
+    db.prepare(
+      'INSERT OR REPLACE INTO users (user_id, name, email, role, department, investigation_flag, last_active) VALUES (?,?,?,?,?,?,?)',
+    ).run('U-DEPT-E2E', 'department user', 'dept@example.test', 'department', 'traffic-police', 0, Date.now())
+    db.close()
+
+    const refused = await request.post(`/api/v1/incidents/${incidentId}/export/disclosure`, {
+      headers: { 'x-user-id': 'U-DEPT-E2E' },
+      data: {},
+    })
+    expect(refused.status()).toBe(403)
+    expect(((await refused.json()) as { error: string }).error).toBe('forbidden')
+
+    /* The same user may still take the internal summary. */
+    const allowed = await request.post(`/api/v1/incidents/${incidentId}/export/summary`, {
+      headers: { 'x-user-id': 'U-DEPT-E2E' },
+      data: {},
+    })
+    expect(allowed.status()).toBe(403)
   })
 })

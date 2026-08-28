@@ -15,6 +15,6 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ incidentId:
           ?.investigation_flag ?? 0) === 1
       : false
 
-  const bundle = buildForensics(incidentId, flagged)
+  const bundle = await buildForensics(incidentId, flagged)
   return bundle ? json(bundle) : notFound('incident', incidentId)
 }

@@ -87,7 +87,11 @@ export async function POST(req: NextRequest) {
 
   let stored = null
   if (media) {
-    stored = await storeEvidence(media.bytes, media.type, media.name, user.name)
+    stored = await storeEvidence(media.bytes, media.type, media.name, user.name, {
+      source_id: sourceId,
+      t_start: tStart,
+      signature: payload.device_signature ? String(payload.device_signature) : null,
+    })
   }
 
   const { observation } = ingestObservation({

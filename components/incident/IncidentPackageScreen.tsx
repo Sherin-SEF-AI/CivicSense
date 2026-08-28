@@ -30,9 +30,7 @@ import { errorCode, errorDetail } from '@/lib/api/client'
 import { fmtDateTime, fmtDuration, fmtPct, fmtScore, fmtTime, fmtUsd } from '@/lib/format'
 import { useUi } from '@/lib/stores/ui'
 import { useSelection } from '@/lib/stores/selection'
-import { buildOfflineBundleAsync, downloadText } from '@/lib/export/offline'
-import { renderDisclosureBundle } from '@/lib/export/disclosure'
-import { summaryPdf } from '@/lib/export/summary'
+import { requestExport } from '@/lib/export/download'
 
 const ADMISSIBILITY_COLOR = {
   met: 'var(--ok)',
@@ -139,48 +137,43 @@ export function IncidentPackageScreen({ incidentId }: { incidentId: string }) {
 
   const totalCost = pkg.model_trace.reduce((s, r) => s + r.cost_usd, 0)
 
-  const exportBundle = async () => {
-    if (!bundle) {
-      toast({ tone: 'error', text: 'the forensic bundle has not loaded yet', detail: 'retry in a moment' })
-      return
-    }
-    const html = await buildOfflineBundleAsync(pkg, bundle)
-    downloadText(`civicsense-${incident.incident_id}.html`, html, 'text/html')
-    toast({
-      tone: 'ok',
-      text: 'offline bundle exported',
-      detail: 'self-contained html, hashes verifiable without the platform',
-    })
-  }
-
   /* Three exports, three audiences. The offline bundle is the complete record,
      the summary is for someone who will never open the console, and the
-     disclosure copy is the one that leaves the organisation. */
-  const exportSummary = () => {
-    const bytes = summaryPdf(pkg, bundle ?? null)
-    const blob = new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'application/pdf' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `civicsense-${incident.incident_id}-summary.pdf`
-    a.click()
-    URL.revokeObjectURL(url)
-    toast({
-      tone: 'ok',
-      text: 'summary exported',
-      detail: bundle ? 'pdf, every claim carries its confidence' : 'pdf without the forensic bundle, which had not loaded',
-    })
+     disclosure copy is the one that leaves the organisation.
+
+     All three are produced by the server. It verifies every object it is about
+     to cite, writes an export entry into each object's custody chain and an
+     audit row, and returns the manifest digest, which is what the toast reports
+     back. An export used to happen entirely in the browser and leave no trace
+     anywhere, which for the single most consequential thing a person can do
+     with evidence was the wrong place for it. */
+  const runExport = async (kind: 'offline' | 'summary' | 'disclosure', ok: string, detail: string) => {
+    try {
+      const result = await requestExport(incident.incident_id, kind, activeCaseId ? { case_id: activeCaseId } : {})
+      toast({
+        tone: result.failed > 0 ? 'error' : kind === 'disclosure' ? 'info' : 'ok',
+        text: result.failed > 0 ? `${ok}, but ${result.failed} object(s) failed verification` : ok,
+        detail:
+          result.failed > 0
+            ? 'the export states which objects failed on its own face. do not serve it without resolving them.'
+            : `${detail} · ${result.verified} objects verified · manifest ${result.manifestHash?.slice(0, 16) ?? 'none'}`,
+      })
+    } catch (error) {
+      toast({ tone: 'error', text: `${kind} export refused`, detail: error instanceof Error ? error.message : String(error) })
+    }
   }
 
-  const exportDisclosure = () => {
-    const html = renderDisclosureBundle(pkg, bundle ?? null, null)
-    downloadText(`civicsense-${incident.incident_id}-disclosure.html`, html, 'text/html')
-    toast({
-      tone: 'info',
-      text: 'disclosure copy exported',
-      detail: 'person actors and dossiers removed, redaction log attached. issue the section 63 certificate from the case screen before serving it.',
-    })
-  }
+  const exportBundle = () =>
+    runExport('offline', 'offline bundle exported', 'self-contained html, hashes verifiable without the platform')
+
+  const exportSummary = () => void runExport('summary', 'summary exported', 'pdf, every claim carries its confidence')
+
+  const exportDisclosure = () =>
+    void runExport(
+      'disclosure',
+      'disclosure copy exported',
+      'person actors and dossiers removed, redaction log attached',
+    )
 
   return (
     <div className="w-full overflow-auto">

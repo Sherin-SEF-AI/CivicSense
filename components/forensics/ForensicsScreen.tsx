@@ -25,7 +25,7 @@ import { errorCode, errorDetail } from '@/lib/api/client'
 import { fmtBytes, fmtDuration, fmtPct, fmtTime } from '@/lib/format'
 import { useSelection } from '@/lib/stores/selection'
 import { useUi } from '@/lib/stores/ui'
-import { buildOfflineBundleAsync, downloadText } from '@/lib/export/offline'
+import { requestExport } from '@/lib/export/download'
 import { isUnavailable } from '@/components/primitives/ReasoningUnavailable'
 
 /**
@@ -281,10 +281,17 @@ export function ForensicsScreen({ incidentId }: { incidentId: string }) {
       })
       return
     }
-    const html = await buildOfflineBundleAsync(packageQuery.data, bundle)
-    downloadText(`civicsense-${incidentId}.html`, html, 'text/html')
+    const result = await requestExport(incidentId, 'offline', activeCaseId ? { case_id: activeCaseId } : {})
+    if (result.failed > 0) {
+      toast({
+        tone: 'error',
+        text: `bundle exported, but ${result.failed} object(s) failed verification`,
+        detail: 'the export states which on its own face',
+      })
+      return
+    }
     toast({ tone: 'ok', text: 'offline bundle exported', detail: 'opens standalone, hashes printed in full' })
-  }, [bundle, packageQuery.data, incidentId, toast])
+  }, [bundle, packageQuery.data, incidentId, activeCaseId, toast])
 
   if (bundleQuery.error) {
     return (

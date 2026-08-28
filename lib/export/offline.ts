@@ -56,10 +56,24 @@ figcaption{font-size:11px;color:var(--ink2);padding-top:4px}
 .gap{color:var(--medium)}
 `
 
+/**
+ * What the server recorded when it produced this file.
+ *
+ * A bundle that says who took it out and whether every object still verified at
+ * that moment is a different artefact from one that does not. Absent when the
+ * bundle is rendered outside an export, which is now only in tests.
+ */
+export interface ExportAttestation {
+  manifestHash: string
+  exportedBy: string
+  objects: { sha256: string; bytes: number; content_ok: boolean; chain_ok: boolean }[]
+}
+
 export function renderOfflineBundle(
   pkg: IntelligencePackage,
   bundle: ForensicsBundle,
   images: Map<string, string>,
+  attestation: ExportAttestation | null = null,
 ): string {
   const incident = pkg.incident
   const [windowStart, windowEnd] = bundle.window
@@ -215,6 +229,24 @@ Electronic record certificate under Section 63 of the Bharatiya Sakshya Adhiniya
 recipient and requires the deployment state's counsel-confirmed format. This export records the particulars it depends
 on: content-addressed storage with a SHA-256 chain per incident, signed manifests, and a custody log for every access.
 </div>
+
+${
+  attestation === null
+    ? ''
+    : `<h2>Export record</h2>
+<p class="meta">Every object below was re-verified at the moment this file was produced: the stored bytes were
+re-hashed, and the custody chain was recomputed from the evidence hash forward. A failure here is stated rather than
+suppressed, because an export that hides a damaged object is worse than one that reports it.</p>
+<table><thead><tr><th>object</th><th style="text-align:right">bytes</th><th>content</th><th>custody chain</th></tr></thead><tbody>${attestation.objects
+        .map(
+          (o) => `<tr><td class="hash mono">${escape(o.sha256)}</td>
+<td class="mono n" style="text-align:right">${o.bytes.toLocaleString()}</td>
+<td class="mono n" style="color:${o.content_ok ? 'var(--ok)' : 'var(--critical)'}">${o.content_ok ? 'rehashes' : 'MISMATCH'}</td>
+<td class="mono n" style="color:${o.chain_ok ? 'var(--ok)' : 'var(--critical)'}">${o.chain_ok ? 'recomputes' : 'BROKEN'}</td></tr>`,
+        )
+        .join('')}</tbody></table>
+<p class="meta mono">manifest sha-256 ${escape(attestation.manifestHash)}<br>exported by ${escape(attestation.exportedBy)}</p>`
+}
 
 <p class="meta mono">exported ${fmtDateTime(Date.now())} · guard ${escape(pkg.guard.verdict)} · policy ${escape(pkg.guard.policy_version)}</p>
 </div></body></html>`

@@ -4,7 +4,9 @@ import { execFile } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { EVIDENCE_DIR, appendCustody, get, run } from '@/lib/db'
+import { EVIDENCE_DIR, all, appendCustody, db, get, run } from '@/lib/db'
+import { merkleOf } from '@/lib/vault/merkle'
+import { verifyCaptureSignature, type SignatureVerdict } from '@/lib/vault/signing'
 
 const exec = promisify(execFile)
 
@@ -88,11 +90,25 @@ export async function probe(path: string): Promise<Partial<StoredEvidence>> {
   }
 }
 
+/**
+ * What the capturing device asserted about these bytes.
+ *
+ * Optional, because a phone upload or a re-ingest has no device to assert it.
+ * When it is present it is checked; when it is absent the object is recorded as
+ * unverified rather than quietly treated as trustworthy.
+ */
+export interface CaptureClaim {
+  source_id: string
+  t_start: number
+  signature: string | null
+}
+
 export async function storeEvidence(
   bytes: Buffer,
   mediaType: string,
   originalName: string | null,
   actor: string,
+  claim: CaptureClaim | null = null,
 ): Promise<StoredEvidence> {
   const sha256 = createHash('sha256').update(bytes).digest('hex')
 
@@ -133,7 +149,28 @@ export async function storeEvidence(
     ],
   )
 
-  appendCustody(sha256, actor, 'system', 'capture', `ingested ${bytes.byteLength} bytes as ${mediaType}`)
+  /* The chunk tree is computed at ingest, not on demand, because it is part of
+     the object's identity and a later recomputation would be a claim about
+     bytes rather than a record of them. */
+  const tree = merkleOf(bytes)
+  run(
+    'INSERT INTO evidence_merkle (sha256, root, chunk_size, leaf_count, algo, computed_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [sha256, tree.root, tree.chunkSize, tree.leafCount, tree.algo, ingestedAt],
+  )
+  const insertChunk = db().prepare(
+    'INSERT INTO evidence_chunks (sha256, idx, offset, len, digest) VALUES (?, ?, ?, ?, ?)',
+  )
+  for (const chunk of tree.chunks) insertChunk.run(sha256, chunk.index, chunk.offset, chunk.length, chunk.digest)
+
+  const signature = verifyClaim(sha256, tree.root, claim, ingestedAt)
+
+  appendCustody(
+    sha256,
+    actor,
+    'system',
+    'capture',
+    `ingested ${bytes.byteLength} bytes as ${mediaType}, chunk root ${tree.root.slice(0, 16)}, signature ${signature}`,
+  )
 
   return {
     sha256,
@@ -149,6 +186,57 @@ export async function storeEvidence(
     ingested_at: ingestedAt,
     deduplicated: false,
   }
+}
+
+/**
+ * Checks the capture claim and records the verdict.
+ *
+ * Four outcomes, and they are deliberately distinct. `unverified` means nothing
+ * was claimed. `no_key` means something was claimed but no enrolled key exists
+ * to check it against, which is a deployment gap rather than a failure of the
+ * object. `bad_signature` means a claim was made and it does not hold, which is
+ * the one that should stop an operator.
+ */
+function verifyClaim(
+  sha256: string,
+  merkleRoot: string,
+  claim: CaptureClaim | null,
+  at: number,
+): SignatureVerdict {
+  const record = (verdict: SignatureVerdict, detail: string, keyId: string | null) => {
+    run(
+      'INSERT INTO device_signatures (sha256, key_id, verdict, detail, signed_over, verified_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [sha256, keyId, verdict, detail, merkleRoot, at],
+    )
+    return verdict
+  }
+
+  if (!claim?.signature) return record('unverified', 'no capture signature was supplied at ingest', null)
+
+  const keys = all<{ key_id: string; public_key: string }>(
+    'SELECT key_id, public_key FROM device_keys WHERE source_id = ? AND revoked_at IS NULL ORDER BY enrolled_at DESC',
+    [claim.source_id],
+  )
+  if (keys.length === 0) {
+    return record('no_key', `no enrolled capture key for ${claim.source_id}, so the signature cannot be checked`, null)
+  }
+
+  for (const key of keys) {
+    const ok = verifyCaptureSignature({
+      publicKeyBase64: key.public_key,
+      signatureBase64: claim.signature,
+      sourceId: claim.source_id,
+      tStartMs: claim.t_start,
+      merkleRoot,
+    })
+    if (ok) return record('verified', `signed by ${key.key_id} over the chunk root`, key.key_id)
+  }
+
+  return record(
+    'bad_signature',
+    `a signature was supplied but it does not verify against any of the ${keys.length} enrolled key(s) for ${claim.source_id}`,
+    keys[0]!.key_id,
+  )
 }
 
 function extensionFor(mediaType: string, originalName: string | null): string {

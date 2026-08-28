@@ -1,8 +1,9 @@
 import 'server-only'
 import Database from 'better-sqlite3'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { applyMigrations } from './migrate'
 
 /**
  * The store.
@@ -36,10 +37,7 @@ export function db(): Database.Database {
   connection.pragma('foreign_keys = ON')
   connection.pragma('synchronous = NORMAL')
 
-  const schemaPath = join(process.cwd(), 'lib', 'db', 'schema.sql')
-  if (existsSync(schemaPath)) {
-    connection.exec(readFileSync(schemaPath, 'utf8'))
-  }
+  applyMigrations(connection)
 
   g[KEY] = connection
   return connection
@@ -104,6 +102,28 @@ export function verifyAuditChain(): { valid: boolean; brokenAt: number | null; e
   return { valid: true, brokenAt: null, entries: rows.length }
 }
 
+/**
+ * The seven actions a custody entry may record.
+ *
+ * Four of these were declared in the schema and never written by anything, which
+ * meant a chain could show an object being accessed but never exported, derived
+ * or placed under hold. Typing the parameter is what stops the set drifting
+ * again.
+ */
+export type CustodyAction = 'capture' | 'ingest' | 'access' | 'export' | 'derive' | 'hold' | 'verify'
+
+export interface CustodyRow {
+  id: number
+  sha256: string
+  t: number
+  actor: string
+  role: string
+  action: CustodyAction
+  purpose: string
+  hash_after: string
+  prev_hash: string
+}
+
 /** Custody entries chain per evidence item, the same way the audit log does. */
 export function appendCustody(
   sha256: string,
@@ -123,6 +143,58 @@ export function appendCustody(
     'INSERT INTO custody (sha256, t, actor, role, action, purpose, hash_after, prev_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     [sha256, t, actor, role, action, purpose, hashAfter, prevHash],
   )
+}
+
+/** The same append, with the action restricted to the declared set. */
+export function appendCustodyTyped(
+  sha256: string,
+  actor: string,
+  role: string,
+  action: CustodyAction,
+  purpose: string,
+): void {
+  appendCustody(sha256, actor, role, action, purpose)
+}
+
+export function custodyChain(sha256: string): CustodyRow[] {
+  return all<CustodyRow>('SELECT * FROM custody WHERE sha256 = ? ORDER BY id ASC', [sha256])
+}
+
+/**
+ * Recomputes a custody chain from its own contents.
+ *
+ * The seed is the evidence hash itself rather than zeros, which is what binds
+ * the chain to the object it describes: a chain lifted from one item cannot be
+ * replayed against another. Every entry is recomputed in order, so a removed,
+ * reordered or edited row breaks verification at that entry and at everything
+ * after it.
+ *
+ * Note that `role` is stored but is deliberately not part of the preimage, which
+ * matches how the chain has been written since the first entry. Changing that
+ * now would invalidate every existing chain.
+ */
+export function verifyCustodyChain(sha256: string): {
+  valid: boolean
+  brokenAt: number | null
+  entries: number
+  results: { id: number; ok: boolean }[]
+} {
+  const rows = custodyChain(sha256)
+  let previous = sha256
+  let brokenAt: number | null = null
+  const results: { id: number; ok: boolean }[] = []
+
+  for (const row of rows) {
+    const expected = createHash('sha256')
+      .update(`${previous}|${row.t}|${row.actor}|${row.action}|${row.purpose}`)
+      .digest('hex')
+    const ok = row.prev_hash === previous && row.hash_after === expected
+    results.push({ id: row.id, ok })
+    if (!ok && brokenAt === null) brokenAt = row.id
+    previous = row.hash_after
+  }
+
+  return { valid: brokenAt === null, brokenAt, entries: rows.length, results }
 }
 
 export function setting(key: string, fallback: string): string {
