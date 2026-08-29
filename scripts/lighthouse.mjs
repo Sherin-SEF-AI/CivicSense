@@ -8,8 +8,11 @@
  * operator console and measuring it under a phone viewport tests a layout the
  * product does not have.
  *
- *   npm run build && npx next start -p 3115
+ *   npm run build && npm start -- -p 3115
  *   node scripts/lighthouse.mjs http://localhost:3115
+ *
+ * Both write to and read from .next-prod, so neither disturbs a dev server that
+ * happens to be running.
  */
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync } from 'node:fs'

@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "npm run sync:map && next dev -p 3111",
-    "build": "npm run sync:map && next build",
-    "start": "next start -p 3111",
+    "build": "NEXT_DIST_DIR=.next-prod next build",
+    "start": "NEXT_DIST_DIR=.next-prod next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "glyphs": "tsx scripts/gen-glyph-sprite.ts",

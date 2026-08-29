@@ -30,7 +30,12 @@ test.describe('console surfaces', () => {
     expect(errors).toEqual([])
   })
 
-  test('a playbook step can be added and the version bumps', async ({ page }) => {
+  test('a playbook step can be added and the version bumps', async ({ page, request }) => {
+    const before = (await (await request.get('/api/v1/admin')).json()) as {
+      playbooks: { playbook_id: string; version: number; steps: unknown[] }[]
+    }
+    const target = before.playbooks[0]!
+
     await page.goto('/admin')
     await page.getByRole('tab', { name: 'playbooks' }).click()
 
@@ -44,7 +49,19 @@ test.describe('console surfaces', () => {
     const last = page.getByLabel(/^step \d+ text$/).last()
     await last.fill('added by the acceptance suite')
     await page.getByRole('button', { name: /^save as version/ }).click()
-    await expect(page.getByText(/saved as version/)).toBeVisible()
+
+    /* Asserted on what was stored rather than on the toast that announced it.
+       A toast dismisses itself after four seconds, so under load the assertion
+       raced the timer and failed for a reason unrelated to the feature. What
+       matters is that the edit persisted and the version moved. */
+    await expect(async () => {
+      const after = (await (await request.get('/api/v1/admin')).json()) as {
+        playbooks: { playbook_id: string; version: number; steps: unknown[] }[]
+      }
+      const saved = after.playbooks.find((p) => p.playbook_id === target.playbook_id)!
+      expect(saved.version).toBe(target.version + 1)
+      expect(saved.steps.length).toBe(target.steps.length + 1)
+    }).toPass({ timeout: 15_000 })
   })
 
   test('a saved search is listed with its match count and can be removed', async ({ page }) => {
@@ -77,7 +94,15 @@ test.describe('console surfaces', () => {
     }
 
     await page.goto('/sources')
-    await page.getByRole('row').filter({ hasText: source }).first().click()
+    /* The fleet table is virtualized, so a row is only in the DOM when it is on
+       screen. Run alone this file creates a handful of sources and the target
+       happens to be in the first window; run with the whole suite there are
+       dozens and it is not, which failed the test for a reason that had nothing
+       to do with the synopsis. Filtering is also what an operator would do. */
+    await page.getByLabel('filter sources').fill(source)
+    const row = page.getByRole('row').filter({ hasText: source }).first()
+    await expect(row).toBeVisible()
+    await row.click()
 
     await expect(page.getByText('synopsis')).toBeVisible()
     await expect(page.getByText(/of coverage condensed to/)).toBeVisible()
