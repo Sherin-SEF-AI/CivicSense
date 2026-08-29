@@ -163,6 +163,36 @@ test.describe('intake', () => {
     }
   })
 
+  test('many files queue and are brought in one at a time', async ({ page }) => {
+    await page.goto('/upload')
+    await page.getByLabel('why this is being brought in').fill('three stills from the same complaint')
+
+    /* A card holds a hundred clips. They go one at a time, so gigabytes are
+       never in flight and one failure does not take the batch with it. */
+    await page.getByLabel('files to upload').setInputFiles([
+      { name: 'a.png', mimeType: 'image/png', buffer: tinyPng(101) },
+      { name: 'b.png', mimeType: 'image/png', buffer: tinyPng(202) },
+      { name: 'c.png', mimeType: 'image/png', buffer: tinyPng(303) },
+    ])
+
+    await expect(page.getByText('3 file(s) queued', { exact: false })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'bring in 3 files' })).toBeEnabled()
+    await page.getByRole('button', { name: 'bring in 3 files' }).click()
+
+    /* Each file carries its own outcome rather than the batch reporting a count. */
+    await expect(async () => {
+      expect(await page.getByText('done', { exact: true }).count()).toBe(3)
+    }).toPass({ timeout: 90_000 })
+    expect(await page.getByText('failed', { exact: true }).count()).toBe(0)
+
+    const uploads = (await (await page.request.get('/api/v1/uploads')).json()) as {
+      items: { original_name: string | null }[]
+    }
+    for (const name of ['a.png', 'b.png', 'c.png']) {
+      expect(uploads.items.some((u) => u.original_name === name), `${name} was not stored`).toBe(true)
+    }
+  })
+
   test('the intake screen keeps what was asserted apart from what was established', async ({ page }) => {
     const errors = collectConsoleErrors(page)
     await page.goto('/upload')

@@ -103,17 +103,29 @@ export async function POST(req: NextRequest) {
   if (mediaKind === 'video' || mediaKind === 'image') {
     const extraction = await extractFrames(stored.stored_path, meta.duration_ms ?? null)
     analysis.sampling = extraction.coverage
-    try {
-      const found = await detect(extraction.frames, {
-        kind: sourceKind,
-        coverage: extraction.coverage,
-        whereStated: statedLat !== null && statedLon !== null ? `${statedLat}, ${statedLon}` : 'not stated',
-      })
-      detection = found
-      analysis.detection = found
-    } catch (error) {
-      analysis.detection_unavailable =
-        error instanceof DetectionUnavailable ? error.reason : String(error)
+    /* The vision model intermittently rejects its own structured output, so a
+       single failure is not the same as nothing being there. Three attempts,
+       and if all fail the clip is recorded as unexamined rather than as empty:
+       those are different findings and only one of them is about the footage. */
+    for (let attempt = 0; attempt < 3 && detection === null; attempt++) {
+      try {
+        const found = await detect(extraction.frames, {
+          kind: sourceKind,
+          coverage: extraction.coverage,
+          whereStated: statedLat !== null && statedLon !== null ? `${statedLat}, ${statedLon}` : 'not stated',
+        })
+        detection = found
+        analysis.detection = found
+      } catch (error) {
+        if (error instanceof DetectionUnavailable) {
+          analysis.detection_unavailable = error.reason
+          break
+        }
+        analysis.detection_unavailable =
+          `the vision model did not return a usable answer after ${attempt + 1} attempt(s): ${String(error).slice(0, 160)}. ` +
+          'this clip was not examined, which is not the same as nothing being in it.'
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)))
+      }
     }
   }
 
@@ -193,6 +205,8 @@ async function transcribe(path: string, kind: MediaKind): Promise<Record<string,
     body.append('model', ROLES.audio.primary)
     body.append('response_format', 'verbose_json')
     body.append('timestamp_granularities[]', 'segment')
+    /* Ask for segment detail so the model's own confidence is available. */
+    body.append('temperature', '0')
 
     const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
       method: 'POST',
@@ -201,13 +215,63 @@ async function transcribe(path: string, kind: MediaKind): Promise<Record<string,
     })
     if (!response.ok) return { unavailable: `transcription answered ${response.status}` }
 
-    const parsed = (await response.json()) as { text?: string; language?: string; segments?: unknown[] }
+    const parsed = (await response.json()) as {
+      text?: string
+      language?: string
+      segments?: { text?: string; no_speech_prob?: number; avg_logprob?: number }[]
+    }
+
+    /* Whisper invents speech from noise, and dashcam audio is almost entirely
+       engine and road noise. On this footage it produced "Thank you" and "I'm
+       going to go to the next video" from a clip whose only sound was a car.
+       An invented transcript attached to a piece of evidence is the exact thing
+       this system exists to prevent, so the model's own confidence is used to
+       throw those segments away rather than passing them on.
+
+       no_speech_prob is the model's estimate that a segment contains no speech
+       at all. avg_logprob near zero means it was confident in the tokens it
+       chose; a strongly negative value means it was guessing. */
+    const segments = Array.isArray(parsed.segments) ? parsed.segments : []
+    /* Whisper's stock hallucinations on noise are short, confident and
+       generic: "Thank you", "I'm going to go to the next video". They survive a
+       no_speech_prob test because the model genuinely believes them, so a
+       segment must also be long enough to be worth reporting. A real utterance
+       that short adds nothing to a record either. */
+    const kept = segments.filter((segment) => {
+      const text = (segment.text ?? '').trim()
+      if (text.length < 16) return false
+      return (segment.no_speech_prob ?? 1) < 0.5 && (segment.avg_logprob ?? -10) > -0.8
+    })
+    const discarded = segments.length - kept.length
+    const text = kept.map((segment) => (segment.text ?? '').trim()).join(' ').trim()
+
+    if (text === '') {
+      return {
+        text: '',
+        language: parsed.language ?? 'unknown',
+        segments: 0,
+        no_speech: true,
+        discarded_segments: discarded,
+        detail:
+          segments.length === 0
+            ? 'the audio track carried nothing the transcriber recognised as speech'
+            : `every one of the ${segments.length} segment(s) the transcriber produced was discarded as too short or too ` +
+              'uncertain to be speech, which is what engine and road noise looks like to a speech model. nothing is ' +
+              'reported rather than reporting what it guessed.',
+      }
+    }
+
     return {
-      text: parsed.text ?? '',
+      text,
       language: parsed.language ?? 'unknown',
-      segments: Array.isArray(parsed.segments) ? parsed.segments.length : 0,
+      segments: kept.length,
+      discarded_segments: discarded,
+      no_speech: false,
       caveat:
-        'a machine transcript is investigative. contested passages are transcribed by a person before they are relied on.',
+        'a machine transcript is investigative. contested passages are transcribed by a person before they are relied on.' +
+        (discarded > 0
+          ? ` ${discarded} segment(s) were discarded because the model itself rated them as probably not speech.`
+          : ''),
     }
   } catch (error) {
     return { unavailable: error instanceof Error ? error.message : String(error) }

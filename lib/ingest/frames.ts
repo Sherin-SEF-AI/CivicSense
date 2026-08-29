@@ -35,6 +35,18 @@ export interface Extraction {
   coverage: string
 }
 
+/**
+ * How wide a frame is when it goes to a model.
+ *
+ * A dashcam frame is 2304 by 1296, and eight of those base64 encoded exceed
+ * what the endpoint accepts: on real footage every request failed with a 400
+ * while the synthetic 320 by 240 clips in the test corpus passed, so the limit
+ * was invisible until real material arrived. The examination is of a reduced
+ * frame and the report says so, because a model that could not resolve a number
+ * plate at this width should not be assumed to have tried.
+ */
+export const EXAMINATION_WIDTH = 1024
+
 export async function extractFrames(
   path: string,
   durationMs: number | null,
@@ -66,7 +78,11 @@ export async function extractFrames(
       try {
         await exec('ffmpeg', [
           '-v', 'error', '-ss', (atMs / 1000).toFixed(3), '-i', path,
-          '-frames:v', '1', '-q:v', '3', '-y', out,
+          '-frames:v', '1',
+          /* Even width, and a full range pixel format: the mjpeg encoder
+             refuses the full range source these cameras produce otherwise. */
+          '-vf', `scale='min(${EXAMINATION_WIDTH},iw)':-2`,
+          '-pix_fmt', 'yuvj420p', '-q:v', '5', '-y', out,
         ])
         frames.push({ index: i, at_ms: atMs, bytes: await readFile(out) })
       } catch {
@@ -81,7 +97,8 @@ export async function extractFrames(
       sampled_every_ms: Math.round(every),
       coverage:
         `${frames.length} frame(s) sampled evenly across ${(durationMs / 1000).toFixed(1)} s, ` +
-        `one about every ${(every / 1000).toFixed(1)} s. anything between them was not looked at.`,
+        `one about every ${(every / 1000).toFixed(1)} s, examined at up to ${EXAMINATION_WIDTH} px wide. ` +
+        'anything between them was not looked at, and detail below that width was not resolvable.',
     }
   } finally {
     await rm(dir, { recursive: true, force: true })

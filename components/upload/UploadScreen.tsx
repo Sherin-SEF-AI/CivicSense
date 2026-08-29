@@ -82,8 +82,9 @@ export function UploadScreen() {
   const [note, setNote] = useState('')
   const [sensorKind, setSensorKind] = useState('noise')
   const [unit, setUnit] = useState('dB(A)')
-  const [file, setFile] = useState<File | null>(null)
+  const [queue, setQueue] = useState<QueuedFile[]>([])
   const [dragging, setDragging] = useState(false)
+  const [running, setRunning] = useState(false)
 
   const list = useQuery({
     queryKey: ['uploads'],
@@ -91,9 +92,54 @@ export function UploadScreen() {
     refetchInterval: 20_000,
   })
 
-  const upload = useMutation({
-    mutationFn: async () => {
-      if (!file) throw new Error('choose a file first')
+  /**
+   * One at a time, in order.
+   *
+   * A dashcam card holds a hundred clips of ninety megabytes each. Sending them
+   * together would put gigabytes in flight and give one failure for the whole
+   * batch, so they go one at a time and each carries its own outcome. A file
+   * that fails does not stop the ones behind it, and the queue says which
+   * failed and why rather than reporting a count.
+   */
+  const runQueue = async () => {
+    setRunning(true)
+    for (let index = 0; index < queue.length; index++) {
+      const item = queue[index]
+      if (!item || item.state === 'done') continue
+
+      setQueue((current) => current.map((q, i) => (i === index ? { ...q, state: 'uploading' } : q)))
+      try {
+        const result = await sendOne(item.file)
+        setQueue((current) =>
+          current.map((q, i) =>
+            i === index
+              ? {
+                  ...q,
+                  state: 'done',
+                  detail: result.readings
+                    ? `${result.readings} readings`
+                    : result.needs_adjudication
+                      ? 'proposes a situation, awaiting a ruling'
+                      : (result.note ?? 'stored'),
+                }
+              : q,
+          ),
+        )
+      } catch (error) {
+        setQueue((current) =>
+          current.map((q, i) =>
+            i === index
+              ? { ...q, state: 'failed', detail: error instanceof Error ? error.message : String(error) }
+              : q,
+          ),
+        )
+      }
+      void qc.invalidateQueries({ queryKey: ['uploads'] })
+    }
+    setRunning(false)
+  }
+
+  const sendOne = async (file: File) => {
       const body = new FormData()
       body.append('file', file)
       body.append('source_kind', kind)
@@ -108,23 +154,16 @@ export function UploadScreen() {
       }
 
       const response = await fetch(`${API_BASE}/uploads`, { method: 'POST', body })
-      const parsed = (await response.json()) as { error?: string; detail?: string; note?: string; readings?: number }
+      const parsed = (await response.json()) as {
+        error?: string
+        detail?: string
+        note?: string
+        readings?: number
+        needs_adjudication?: boolean
+      }
       if (!response.ok) throw new Error(parsed.detail ?? parsed.error ?? `upload failed with ${response.status}`)
       return parsed
-    },
-    onSuccess: (result) => {
-      toast({
-        tone: 'ok',
-        text: result.readings ? `${result.readings} readings stored` : 'stored, hashed and examined',
-        detail: result.note,
-      })
-      setFile(null)
-      setPurpose('')
-      if (fileRef.current) fileRef.current.value = ''
-      void qc.invalidateQueries({ queryKey: ['uploads'] })
-    },
-    onError: (error) => toast({ tone: 'error', text: 'not accepted', detail: error.message }),
-  })
+  }
 
   const rule = useMutation({
     mutationFn: (input: { detection_id: string; decision: 'confirmed' | 'rejected'; note: string }) =>
@@ -144,7 +183,25 @@ export function UploadScreen() {
     onError: (error) => toast({ tone: 'error', text: 'not recorded', detail: error.message }),
   })
 
-  const ready = file !== null && purpose.trim().length >= 8 && !upload.isPending
+  const waiting = queue.filter((q) => q.state === 'queued' || q.state === 'failed').length
+  const done = queue.filter((q) => q.state === 'done').length
+  const failed = queue.filter((q) => q.state === 'failed').length
+  const ready = waiting > 0 && purpose.trim().length >= 8 && !running
+
+  const addFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    setQueue((current) => {
+      const seen = new Set(current.map((q) => `${q.file.name}:${q.file.size}`))
+      const additions: QueuedFile[] = []
+      for (const file of Array.from(files)) {
+        const key = `${file.name}:${file.size}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        additions.push({ file, state: 'queued', detail: '' })
+      }
+      return [...current, ...additions]
+    })
+  }
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -167,8 +224,7 @@ export function UploadScreen() {
             onDrop={(e) => {
               e.preventDefault()
               setDragging(false)
-              const dropped = e.dataTransfer.files[0]
-              if (dropped) setFile(dropped)
+              addFiles(e.dataTransfer.files)
             }}
             className="flex flex-col items-center gap-2 border border-dashed p-6 text-center"
             style={{
@@ -179,18 +235,19 @@ export function UploadScreen() {
           >
             <Glyph name="export" size={18} />
             <p className="text-[12.5px] text-[var(--ink-1)]">
-              {file ? file.name : 'drop a recording, an audio file or a sensor log here'}
+              {queue.length > 0
+                ? `${queue.length} file(s) queued, ${totalSize(queue)}`
+                : 'drop recordings, audio or sensor logs here. a whole card at once is fine.'}
             </p>
             <p className="mono text-[11px] text-[var(--ink-3)]">
-              {file
-                ? `${(file.size / 1024 / 1024).toFixed(2)} MB · ${file.type || 'unknown type'}`
-                : 'video, audio, images, and csv or json readings'}
+              video, audio, images, and csv or json readings
             </p>
             <input
               ref={fileRef}
               type="file"
-              aria-label="file to upload"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              multiple
+              aria-label="files to upload"
+              onChange={(e) => addFiles(e.target.files)}
               className="mono text-[11px] text-[var(--ink-2)]"
             />
           </div>
@@ -248,10 +305,62 @@ export function UploadScreen() {
             <Field label="anything else worth recording" value={note} onChange={setNote} />
           </div>
 
+          {queue.length > 0 ? (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <Overline>queue</Overline>
+                <span className="mono text-[11px] text-[var(--ink-3)]">
+                  {done} done{failed > 0 ? `, ${failed} failed` : ''}, {waiting} waiting
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setQueue([])}
+                  disabled={running}
+                  className="mono step ml-auto border border-[var(--line-1)] px-1.5 py-0.5 text-[11px] text-[var(--ink-2)] disabled:opacity-40"
+                  style={{ borderRadius: 'var(--radius-chip)' }}
+                >
+                  clear
+                </button>
+              </div>
+              <ul className="flex max-h-[240px] flex-col gap-0.5 overflow-y-auto">
+                {queue.map((item, i) => (
+                  <li key={`${item.file.name}-${i}`} className="mono flex items-center gap-2 text-[11px]">
+                    <span
+                      className="w-[64px] flex-none"
+                      style={{
+                        color:
+                          item.state === 'done'
+                            ? 'var(--ok)'
+                            : item.state === 'failed'
+                              ? 'var(--critical)'
+                              : item.state === 'uploading'
+                                ? 'var(--live)'
+                                : 'var(--ink-3)',
+                      }}
+                    >
+                      {item.state}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[var(--ink-1)]" title={item.file.name}>
+                      {item.file.name}
+                    </span>
+                    <span className="flex-none text-[var(--ink-3)]">
+                      {(item.file.size / 1024 / 1024).toFixed(1)} MB
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {failed > 0 ? (
+                <p className="mono text-[11px]" style={{ color: 'var(--critical)' }}>
+                  {queue.find((q) => q.state === 'failed')?.detail}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           <button
             type="button"
             disabled={!ready}
-            onClick={() => upload.mutate()}
+            onClick={() => void runQueue()}
             className="mono step border px-2 py-1.5 text-[12.5px] disabled:opacity-40"
             style={{
               borderRadius: 'var(--radius-chip)',
@@ -259,8 +368,17 @@ export function UploadScreen() {
               color: ready ? 'var(--live)' : 'var(--ink-3)',
             }}
           >
-            {upload.isPending ? 'hashing, examining, this can take a minute' : 'bring it in'}
+            {running
+              ? `hashing and examining, ${done + 1} of ${queue.length}`
+              : waiting > 1
+                ? `bring in ${waiting} files`
+                : 'bring it in'}
           </button>
+          {running ? (
+            <p className="mono text-[11px] text-[var(--ink-3)]">
+              one at a time, in order. a file that fails does not stop the ones behind it.
+            </p>
+          ) : null}
         </section>
 
         <section className="flex min-h-0 flex-col overflow-y-auto p-3">
@@ -287,6 +405,17 @@ export function UploadScreen() {
       </div>
     </div>
   )
+}
+
+interface QueuedFile {
+  file: File
+  state: 'queued' | 'uploading' | 'done' | 'failed'
+  detail: string
+}
+
+function totalSize(queue: QueuedFile[]): string {
+  const bytes = queue.reduce((sum, q) => sum + q.file.size, 0)
+  return bytes > 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(2)} GB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`
 }
 
 type Item = z.infer<typeof UploadListSchema>['items'][number]
