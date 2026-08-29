@@ -16,6 +16,7 @@ const ITEMS: RailItem[] = [
   { href: '/ops', glyph: 'incident', label: 'operations', match: (p) => p.startsWith('/ops') || p.startsWith('/incident') },
   { href: '/forensics', glyph: 'timeline', label: 'forensics', match: (p) => p.startsWith('/forensics') },
   { href: '/evidence', glyph: 'keyframe', label: 'evidence', match: (p) => p.startsWith('/evidence') },
+  { href: '/upload', glyph: 'export', label: 'intake', match: (p) => p.startsWith('/upload') },
   { href: '/cases', glyph: 'playbook', label: 'cases', match: (p) => p.startsWith('/case') },
   { href: '/predict', glyph: 'prediction', label: 'predict', match: (p) => p.startsWith('/predict') },
   { href: '/sources', glyph: 'cctv-fixed', label: 'sources', match: (p) => p.startsWith('/sources') },

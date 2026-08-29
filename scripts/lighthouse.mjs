@@ -19,7 +19,7 @@ import { join } from 'node:path'
 const base = process.argv[2] ?? 'http://localhost:3115'
 const THRESHOLD = 95
 
-const SCREENS = ['ops', 'evidence', 'cases', 'predict', 'sources', 'analytics', 'query', 'admin', 'forensics']
+const SCREENS = ['ops', 'upload', 'evidence', 'cases', 'predict', 'sources', 'analytics', 'query', 'admin', 'forensics']
 
 const out = mkdtempSync(join(tmpdir(), 'civicsense-lh-'))
 
