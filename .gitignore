@@ -1,6 +1,8 @@
 node_modules
 .next
 .next-prod
+.next-e2e-fis
+.next-e2e
 out
 *.tsbuildinfo
 next-env.d.ts

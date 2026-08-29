@@ -51,6 +51,12 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 180_000,
     env: {
+      /* Its own build directory. The acceptance suite runs `next dev` too, and
+         a second dev server writing into .next deletes the artefacts the one a
+         person is using is serving from. That failed as ENOENT on _document.js
+         and looked like an application fault rather than two processes sharing
+         a directory. */
+      NEXT_DIST_DIR: '.next-e2e',
       CIVICSENSE_DB: '.e2e/civicsense.db',
       CIVICSENSE_EVIDENCE: '.e2e/evidence',
       /* The forensic tier is deliberately detached for this suite. Its absence

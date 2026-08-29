@@ -10,7 +10,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { extname, join, relative } from 'node:path'
 
 const ROOT = process.cwd()
-const SKIP = new Set(['node_modules', '.next', '.next-prod', '.git', 'public', 'data', '.osm-cache', 'test-results', 'playwright-report', 'e2e'])
+const SKIP = new Set(['node_modules', '.next', '.next-prod', '.next-e2e', '.next-e2e-fis', '.git', 'public', 'data', '.osm-cache', 'test-results', 'playwright-report', 'e2e'])
 
 /** tokens.css owns the palette; lib/tokens.ts mirrors it for canvas, which cannot read variables. */
 /* tokens.css is the palette. lib/tokens.ts mirrors it for canvas and map

@@ -53,7 +53,7 @@ const civicsense = {
 }
 
 const config = [
-  { ignores: ['.next/**', '.next-prod/**', 'node_modules/**', 'public/**', 'next-env.d.ts', 'test-results/**', 'playwright-report/**'] },
+  { ignores: ['.next/**', '.next-prod/**', '.next-e2e/**', '.next-e2e-fis/**', 'node_modules/**', 'public/**', 'next-env.d.ts', 'test-results/**', 'playwright-report/**'] },
   ...compat.extends('next/core-web-vitals', 'next/typescript'),
   {
     plugins: { civicsense },
