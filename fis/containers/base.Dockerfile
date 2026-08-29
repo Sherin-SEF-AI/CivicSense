@@ -16,6 +16,9 @@ WORKDIR /opt/fis
 
 COPY worker/pyproject.toml /opt/fis/pyproject.toml
 COPY worker/src /opt/fis/src
+# The schema travels with the code that expects it. Leaving it out meant the
+# migrator ran against an empty directory and reported success.
+COPY db/migrations /opt/fis/db/migrations
 
 RUN pip install --no-cache-dir --no-compile . \
  && python -c "import cv2, numpy, scipy, skimage, av; print('runtime ok')"

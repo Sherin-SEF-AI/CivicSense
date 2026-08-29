@@ -7,6 +7,7 @@ import { storeEvidence } from '@/lib/ingest/media'
 import { SITUATION_BY_KEY } from '@/lib/config/situations'
 import { publish } from '@/lib/events/bus'
 import { bindPreAlert, raisePreAlert } from '@/lib/store/prealerts'
+import { recordSync } from '@/lib/fis/client'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -122,6 +123,31 @@ export async function POST(req: NextRequest) {
   })
 
   recordHealth(sourceId, { uptime: 1, fps: Number(stored?.fps ?? 0), drops: 0, latency_ms: Date.now() - tStart })
+
+  /* What this device's clock said, against when its bytes actually arrived.
+     It is a weak observation, because the arrival time includes however long
+     the network took, and its uncertainty says so: the transport delay is
+     unknown but bounded below by zero, so the observation is centred on the
+     arrival time with a sigma covering a plausible delay. Many weak
+     observations across a day still pin down an offset that no single one
+     could, which is the entire reason for fitting rather than correcting. */
+  const arrivedAt = Date.now()
+  const transitMs = Math.max(0, arrivedAt - tStart)
+  if (transitMs < 30_000) {
+    recordSync([
+      {
+        source_id: sourceId,
+        t_source_ms: tStart,
+        t_utc_ms: arrivedAt,
+        /* Half the transit, floored: a device on the same network arriving in
+           40 ms is not known to 20 ms, and one arriving in 8 s is not known
+           much at all. */
+        sigma_ms: Math.max(50, transitMs / 2),
+        method: 'pts_anchor',
+        detail: `bytes arrived ${transitMs} ms after the declared capture time`,
+      },
+    ])
+  }
 
   /* A trigger is what turns an observation into an incident. Without one the
      observation is recorded and contributes to corroboration later. */

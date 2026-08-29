@@ -211,3 +211,46 @@ export async function fisKinematics(
     return null
   }
 }
+
+export interface SyncObservation {
+  source_id: string
+  t_source_ms: number
+  t_utc_ms: number
+  sigma_ms: number
+  method: 'ntp' | 'gnss' | 'burned_ocr' | 'pts_anchor' | 'gcc_phat' | 'visual_event' | 'manual'
+  detail?: string
+}
+
+/**
+ * Records what a source's clock read against when its bytes actually arrived.
+ *
+ * Fire and forget. The console must not fail an ingest because the forensic
+ * tier is down, and a clock observation that never reached the model is a
+ * slightly wider interval later rather than a lost observation now.
+ */
+export function recordSync(observations: SyncObservation[]): void {
+  if (!fisConfigured() || observations.length === 0) return
+  void fis('/v1/timebase/observations', { method: 'POST', body: observations }).catch(() => {
+    /* Deliberately swallowed. See above. */
+  })
+}
+
+export interface FisResolvedTime {
+  t_utc_ms: number | null
+  sigma_ms: number | null
+  grade: string
+  extrapolated_s: number
+  refused: string | null
+  detail: string
+}
+
+export async function fisResolveTime(sourceId: string, tSourceMs: number): Promise<FisResolvedTime | null> {
+  if (!fisConfigured()) return null
+  try {
+    return await fis<FisResolvedTime>(
+      `/v1/timebase/${encodeURIComponent(sourceId)}/resolve?t_source_ms=${Math.round(tSourceMs)}`,
+    )
+  } catch {
+    return null
+  }
+}

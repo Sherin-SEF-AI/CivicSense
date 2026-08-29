@@ -26,6 +26,7 @@ from fis.db import pool as db
 from fis.api.routers_authenticity import router as authenticity_router
 from fis.api.routers_kinematics import router as kinematics_router
 from fis.api.routers_measure import router as measure_router
+from fis.api.routers_timebase import router as timebase_router
 from fis.operators.registry import all_operators, load_all, registry_digest
 
 app = FastAPI(title="CivicSense FIS", version="0.1.0", docs_url=None, redoc_url=None)
@@ -34,6 +35,7 @@ load_all()
 app.include_router(measure_router)
 app.include_router(authenticity_router)
 app.include_router(kinematics_router)
+app.include_router(timebase_router)
 
 
 class Actor(BaseModel):

@@ -13,10 +13,35 @@ from pathlib import Path
 
 from fis.db.pool import close, connection
 
-MIGRATIONS = Path(__file__).resolve().parents[4] / "db" / "migrations"
+def _migrations_dir() -> Path:
+    """Where the schema lives, in the image and in the source tree.
+
+    Checked rather than assumed. An earlier version pointed at a directory that
+    did not exist inside the container, found no files, and reported that
+    migrations were up to date. The first table a new migration added was then
+    missing at runtime, which is the worst possible way to learn about it.
+    """
+    candidates = [
+        Path("/opt/fis/db/migrations"),
+        Path(__file__).resolve().parents[4] / "db" / "migrations",
+    ]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    raise SystemExit(
+        "no migrations directory found. looked in: " + ", ".join(str(c) for c in candidates)
+    )
 
 
-def apply(directory: Path = MIGRATIONS) -> list[str]:
+MIGRATIONS = None
+
+
+def apply(directory: Path | None = None) -> list[str]:
+    directory = directory or _migrations_dir()
+    files = sorted(directory.glob("*.sql"))
+    if not files:
+        raise SystemExit(f"{directory} contains no migrations, which cannot be right")
+
     applied: list[str] = []
     with connection() as conn, conn.cursor() as cur:
         cur.execute(
@@ -33,7 +58,7 @@ def apply(directory: Path = MIGRATIONS) -> list[str]:
         cur.execute("SELECT version, checksum FROM schema_migrations")
         done = {row["version"]: row["checksum"] for row in cur.fetchall()}
 
-        for path in sorted(directory.glob("*.sql")):
+        for path in files:
             sql = path.read_text()
             checksum = hashlib.sha256(sql.encode()).hexdigest()
             if path.stem in done:

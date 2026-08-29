@@ -279,3 +279,65 @@ test.describe('recorder clock', () => {
     expect(((await bad.json()) as { error: string }).error).toBe('invalid_overlay_layout')
   })
 })
+
+test.describe('timebase', () => {
+  test('ingest feeds the clock model, and a fit produces a resolvable time', async ({ request }) => {
+    const t = Date.now()
+    const id = `E2E-FIS-TB-${t}`
+    await request.post('/api/v1/sources', {
+      data: { source_id: id, source_type: 'cctv-fixed', label: 'timebase', lat: 12.91, lon: 77.63 },
+    })
+
+    /* Before anything is observed there is no model, and that is said plainly
+       rather than answered with a default. */
+    const before = (await (await request.get(`/api/v1/fis/timebase/${id}`)).json()) as {
+      refused?: string
+      detail: string
+    }
+    expect(before.refused).toBe('no_clock_model')
+
+    /* Every ingest records what the device's clock said against when its bytes
+       arrived. One is a weak observation; a run of them is a model. */
+    for (let i = 0; i < 12; i++) {
+      await request.post('/api/v1/ingest/observation', {
+        data: {
+          source_id: id,
+          t_start: t + i * 1000,
+          payload_kind: 'keyframe',
+          classes: ['car'],
+          lat: 12.91,
+          lon: 77.63,
+        },
+      })
+    }
+
+    const fitted = (await (await request.post(`/api/v1/fis/timebase/${id}`)).json()) as {
+      fitted: boolean
+      observations: number
+      segments: { residual_ms: number }[]
+      detail: string
+    }
+    expect(fitted.fitted).toBe(true)
+    expect(fitted.observations).toBeGreaterThanOrEqual(12)
+    expect(fitted.segments.length).toBeGreaterThan(0)
+
+    const resolved = (await (await request.get(`/api/v1/fis/timebase/${id}?t=${t + 6000}`)).json()) as {
+      t_utc_ms: number | null
+      sigma_ms: number | null
+      grade: string
+      refused: string | null
+    }
+    expect(resolved.refused).toBeNull()
+    expect(resolved.sigma_ms).toBeGreaterThan(0)
+    expect(['A', 'B', 'C']).toContain(resolved.grade)
+
+    /* A year past the last observation, the model must refuse rather than
+       extrapolate. A free running oscillator is worth nothing after that long. */
+    const stale = (await (await request.get(`/api/v1/fis/timebase/${id}?t=${t + 365 * 86400_000}`)).json()) as {
+      refused: string | null
+      t_utc_ms: number | null
+    }
+    expect(stale.refused).toBe('timebase_sigma_exceeded')
+    expect(stale.t_utc_ms).toBeNull()
+  })
+})
