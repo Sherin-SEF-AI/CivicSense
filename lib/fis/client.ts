@@ -136,12 +136,22 @@ export interface FisAuthenticity {
  * silently present the smaller set of local checks as though the full battery
  * had run, so the caller marks the difference.
  */
+export interface OverlayRecord {
+  x: number
+  y: number
+  scale: number
+  layout: string
+  seconds_per_frame?: number
+  claimed_start_utc_ms?: number
+}
+
 export async function fisAuthenticity(input: {
   sha256: string
   width: number | null
   height: number | null
   claimedCaptureMs: number | null
   signatureVerdict: string
+  overlay?: OverlayRecord | null
 }): Promise<FisAuthenticity | null> {
   if (!fisConfigured()) return null
   try {
@@ -153,6 +163,7 @@ export async function fisAuthenticity(input: {
         height: input.height,
         claimed_capture_ms: input.claimedCaptureMs,
         signature_verdict: input.signatureVerdict,
+        overlay: input.overlay ?? null,
       },
     })
   } catch {

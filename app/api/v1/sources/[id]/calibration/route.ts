@@ -81,6 +81,7 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
     run_id?: string
     homography?: { matrix?: number[] }
     residual_m?: number
+    overlay?: { x: number; y: number; scale: number; layout: string } | null
   }
 
   const matrix = body.homography?.matrix
@@ -93,6 +94,28 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
   }
 
   const now = Date.now()
+
+  /* Where the recorder burns its clock. Optional, and its absence has a stated
+     consequence: without it the recorder's own clock cannot be read, and frames
+     removed from a quiet scene are not detectable from the picture alone. */
+  if (body.overlay !== undefined) {
+    if (body.overlay === null) {
+      run('UPDATE sources SET overlay = NULL WHERE source_id = ?', [id])
+    } else {
+      const { x, y, scale, layout } = body.overlay
+      if (![x, y, scale].every((v) => Number.isInteger(v) && v >= 0)) {
+        return badRequest('invalid_overlay', 'x, y and scale are non negative integers in pixels')
+      }
+      if (!/^[#\-: ]+$/.test(layout)) {
+        return badRequest(
+          'invalid_overlay_layout',
+          'the layout marks digit cells with # and gives separators literally, for example ####-##-## ##:##:##',
+        )
+      }
+      run('UPDATE sources SET overlay = ? WHERE source_id = ?', [JSON.stringify({ x, y, scale, layout }), id])
+    }
+  }
+
   run('UPDATE sources SET homography = ?, calibration_residual_m = ?, calibrated_at = ? WHERE source_id = ?', [
     JSON.stringify({ matrix }),
     residual,
@@ -123,5 +146,10 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
     /* Anything above this and the platform will only ever call a derived speed
        indicative, which is worth saying at the moment of calibration. */
     measurement_capable: residual <= 1.5,
+    overlay_recorded: body.overlay !== undefined && body.overlay !== null,
+    clock_readable:
+      body.overlay !== undefined && body.overlay !== null
+        ? 'the recorder clock can be read from the picture, so a gap in the recording is detectable'
+        : 'no overlay position is recorded, so the recorder clock cannot be read and frames removed from a quiet scene would not be detectable',
   })
 }

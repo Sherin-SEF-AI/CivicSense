@@ -41,11 +41,12 @@ class Variant:
 VARIANTS = [
     Variant("clean", "control", "consistent", "untouched, the control every detector must stay quiet on"),
     # Deletion from a scene with no monotonic content is not detectable from
-    # content alone, and saying otherwise would be a claim this corpus cannot
-    # support. The test that finds it is burned in timestamp continuity, which
-    # is a separate operator. This variant exists so that limit is on the
-    # record and is re-checked every run rather than remembered.
-    Variant("frames_deleted", "temporal", "consistent", "a run of frames cut from the middle, which content continuity alone does not see"),
+    # the picture alone. The test that finds it is burned in clock continuity,
+    # which needs the overlay position from the source's deployment record. This
+    # corpus carries no overlay, so the expectation here remains what the
+    # picture alone can support, and the clock corpus grades the test that
+    # closes it.
+    Variant("frames_deleted", "temporal", "consistent", "a run of frames cut from the middle, which the picture alone does not show"),
     Variant("frames_duplicated", "temporal", "inconsistent", "a run of frames repeated to cover a gap"),
     Variant("segment_spliced", "temporal", "inconsistent", "a segment from elsewhere inserted"),
     Variant("reencoded", "compression", "consistent", "a second encode generation, which is not tampering by itself"),

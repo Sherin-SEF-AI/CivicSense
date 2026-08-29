@@ -54,13 +54,11 @@ def main() -> int:
         if item["name"] == "clean" and failing:
             failures.append(f"the control failed {', '.join(failing)}; a detector that fires on untouched footage is worthless")
 
-        if item["name"] == "double_compressed_shifted":
-            grid = next(t for t in report["tests"] if t["test"] == "blocking grid")
-            if grid["result"] == "pass":
-                failures.append(
-                    "the blocking grid test reported a single encode geometry on twice encoded material. "
-                    "it must return inconclusive when the picture cannot support the measurement."
-                )
+        # The blocking grid test is not in the battery. It accused untouched
+        # footage of a shifted macroblock grid, and a detector that cannot be
+        # trusted to accuse cannot be trusted to exonerate either.
+        if any(t["test"] == "blocking grid" for t in report["tests"]):
+            failures.append("the blocking grid test is back in the battery without having been validated")
 
     # The two detections that must be exact rather than merely present.
     duplicated = run_battery(OUT / "frames_duplicated.mp4", 320, 240, now)
@@ -73,11 +71,51 @@ def main() -> int:
     if not jumps:
         failures.append("a spliced segment produced no discontinuity")
 
+    # The gap content continuity leaves, and the test that closes it. Asserted
+    # rather than described, so a regression in either shows up here.
     print()
-    print("known limits, re-checked every run:")
-    print("  frame deletion from a scene with no monotonic content is not visible to content continuity.")
-    print("  the test that finds it is burned in timestamp continuity, which is not built yet.")
-    print("  a shifted macroblock grid is not resolvable at 320x240; the test says so rather than guessing.")
+    print("closing the deletion gap with the recorder's own clock:")
+    clock_dir = Path("fis/corpora/out/dvr_clock")
+    if not (clock_dir / "manifest.json").exists():
+        from fis.corpora.dvr_clock import build as build_clock
+
+        build_clock(clock_dir)
+    clock_manifest = json.loads((clock_dir / "manifest.json").read_text())
+
+    for name in ("aligned", "frames_removed"):
+        case = next(c for c in clock_manifest if c["name"] == name)
+        overlay = {
+            **case["region"],
+            "layout": "####-##-## ##:##:##",
+            "seconds_per_frame": case["seconds_per_frame"],
+            "claimed_start_utc_ms": case["first_true_utc_ms"],
+        }
+        report = run_battery(
+            clock_dir / case["file"], case["size"][0], case["size"][1], case["first_true_utc_ms"], overlay
+        )
+        clock_test = next(t for t in report["tests"] if t["test"] == "burned clock")
+        print(f"  {name:<16} {report['verdict']:<13} burned clock: {clock_test['result']}")
+
+        if name == "frames_removed":
+            if clock_test["result"] != "fail":
+                failures.append("twenty deleted frames left the recorder's own clock looking continuous")
+            if report["verdict"] != "inconsistent":
+                failures.append(f"a recording with a break in its own clock was called {report['verdict']}")
+        elif clock_test["result"] != "pass":
+            failures.append(f"the untouched clock recording was reported as {clock_test['result']}")
+        elif report["verdict"] != "consistent":
+            # A second clean control, from a corpus with different content. The
+            # screen replay detector fired on this one while passing the other,
+            # which is how the ramp metric's dependence on slope was found.
+            flagged = [t["test"] for t in report["tests"] if t["result"] == "fail"]
+            failures.append(f"the untouched clock recording was {report['verdict']}, failing {', '.join(flagged)}")
+
+    print()
+    print("limits that remain, re-checked every run:")
+    print("  without an overlay position in the source's deployment record the clock cannot be read,")
+    print("  and deletion from a quiet scene is then not detectable. the test says so rather than passing.")
+    print("  double compression is not detected. the blocking grid test accused untouched footage and")
+    print("  is out of the battery until it measures across block boundaries rather than sampling columns.")
 
     print()
     if failures:

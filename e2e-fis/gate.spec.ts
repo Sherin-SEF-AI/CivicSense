@@ -132,7 +132,11 @@ test.describe('authenticity', () => {
     /* And the tier's, which is the point of attaching it. */
     expect(named.has('container continuity'), 'the picture battery must have run').toBe(true)
     expect(named.has('screen replay')).toBe(true)
-    expect(named.has('blocking grid')).toBe(true)
+    expect(named.has('burned clock')).toBe(true)
+    /* The blocking grid test accused untouched footage of a shifted macroblock
+       grid, so it is out of the battery until it is rebuilt. A detector that
+       cannot be trusted to accuse cannot be trusted to exonerate either. */
+    expect(named.has('blocking grid'), 'an unvalidated detector is back in the battery').toBe(false)
 
     /* A single frame cannot support any of the temporal tests, and every one of
        them must say so rather than return a result it cannot justify. */
@@ -208,5 +212,70 @@ test.describe('kinematics', () => {
     expect(track.peak_speed.lo).toBeLessThanOrEqual(track.peak_speed.value)
     expect(track.peak_speed.hi).toBeGreaterThanOrEqual(track.peak_speed.value)
     expect(track.peak_speed.hi - track.peak_speed.lo).toBeLessThan(40)
+  })
+})
+
+test.describe('recorder clock', () => {
+  test('without an overlay record the clock test says it could not run', async ({ request }) => {
+    const t = Date.now()
+    const id = `E2E-FIS-NOOVL-${t}`
+    await request.post('/api/v1/sources', {
+      data: { source_id: id, source_type: 'cctv-fixed', label: 'no overlay', lat: 13.01, lon: 77.69, sync_quality: 'B' },
+    })
+    const ingested = await request.post('/api/v1/ingest/observation', {
+      multipart: {
+        payload: JSON.stringify({
+          source_id: id,
+          t_start: t,
+          payload_kind: 'keyframe',
+          classes: ['car'],
+          trigger: 'class:no_helmet',
+          situation_key: 'no-helmet',
+          lat: 13.01,
+          lon: 77.69,
+        }),
+        media: { name: 'f.png', mimeType: 'image/png', buffer: tinyPng(t) },
+      },
+    })
+    const { incident_id: incidentId } = (await ingested.json()) as { incident_id: string }
+
+    const bundle = (await (await request.get(`/api/v1/forensics/${incidentId}`)).json()) as {
+      authenticity: { tests: { test: string; result: string; detail: string }[] }[]
+    }
+    const clock = bundle.authenticity[0]!.tests.find((x) => x.test === 'burned clock')!
+    expect(clock.result).toBe('inconclusive')
+    /* The consequence is stated, not left for someone to discover. */
+    expect(clock.detail).toContain('no overlay position is recorded')
+    expect(clock.detail).toContain('not detectable')
+  })
+
+  test('the overlay record is part of calibration and states what it enables', async ({ request }) => {
+    const id = `E2E-FIS-OVL-${Date.now()}`
+    await request.post('/api/v1/sources', {
+      data: { source_id: id, source_type: 'cctv-fixed', label: 'overlay', lat: 13.02, lon: 77.7 },
+    })
+
+    const withOverlay = await request.put(`/api/v1/sources/${id}/calibration`, {
+      data: {
+        homography: { matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1] },
+        residual_m: 0.4,
+        overlay: { x: 8, y: 8, scale: 2, layout: '####-##-## ##:##:##' },
+      },
+    })
+    expect(withOverlay.ok(), await withOverlay.text()).toBe(true)
+    const body = (await withOverlay.json()) as { overlay_recorded: boolean; clock_readable: string }
+    expect(body.overlay_recorded).toBe(true)
+    expect(body.clock_readable).toContain('detectable')
+
+    /* A layout that is not a digit mask is refused rather than stored. */
+    const bad = await request.put(`/api/v1/sources/${id}/calibration`, {
+      data: {
+        homography: { matrix: [1, 0, 0, 0, 1, 0, 0, 0, 1] },
+        residual_m: 0.4,
+        overlay: { x: 8, y: 8, scale: 2, layout: 'time is now' },
+      },
+    })
+    expect(bad.status()).toBe(400)
+    expect(((await bad.json()) as { error: string }).error).toBe('invalid_overlay_layout')
   })
 })

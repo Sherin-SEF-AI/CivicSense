@@ -252,10 +252,28 @@ def recompression(path: Path) -> TestResult:
 def blocking_grid(path: Path, width: int, height: int) -> TestResult:
     """Where the compression grid sits.
 
-    A single encode leaves blocking energy aligned to the 8 pixel grid at offset
-    zero. If the strongest alignment is somewhere else, the picture was cropped
-    or rescaled between encodes, which does not happen by accident in a delivery
-    chain.
+    NOT IN THE BATTERY. It is kept because the approach is right and the
+    implementation is not, and because deleting it would lose the record of
+    what was tried.
+
+    Measuring blocking energy by sampling every eighth column finds whatever
+    structure the scene happens to have at that spacing. On the tamper corpus it
+    could not decide, which was honest, and on the clock corpus it reported a
+    shifted macroblock grid at offset three on a clip encoded exactly once,
+    which is an accusation of tampering against untouched footage. A detector
+    that cannot be trusted to say "shifted" cannot be trusted to say "aligned"
+    either, so it does not run at all rather than running with its verdict
+    softened.
+
+    What it needs is to measure the difference across block boundaries against
+    the difference within blocks, on a residual with the scene's own structure
+    removed, and a corpus at a resolution where the grid survives. None of that
+    is here yet.
+
+    The idea it implements: a single encode leaves blocking energy aligned to
+    the 8 pixel grid at offset zero, and an alignment somewhere else means the
+    picture was cropped or rescaled between encodes, which does not happen by
+    accident in a delivery chain.
     """
     frames = _decode_gray(path, width, height)
     if frames.shape[0] < 3:
@@ -346,7 +364,15 @@ def screen_replay(path: Path, width: int, height: int) -> TestResult:
     slope, intercept = np.polyfit(rows, phase, 1)
     fitted = slope * rows + intercept
     residual = float(np.sqrt(np.mean((phase - fitted) ** 2)))
-    ramp_quality = float(np.ptp(fitted) / max(1e-9, np.ptp(fitted) + residual))
+
+    # How well the phase follows a straight line, as the fraction of its
+    # variance the line explains. An earlier version divided the fitted range by
+    # itself plus the residual, which rewards a steep slope rather than a good
+    # fit: a scene whose phase was all over the place scored 0.87 because the
+    # slope happened to be large, and an untouched recording was reported as
+    # filmed off a screen.
+    variance = float(np.var(phase))
+    ramp_quality = float(max(0.0, 1.0 - (residual**2) / variance)) if variance > 1e-9 else 0.0
 
     measurements = {
         "beat_bin": peak,
@@ -359,7 +385,15 @@ def screen_replay(path: Path, width: int, height: int) -> TestResult:
     # Both conditions, because either alone occurs innocently: a flickering
     # fluorescent tube gives concentration without a ramp, and a smooth vertical
     # wipe gives a ramp without concentration.
-    if concentration > 4.0 and ramp_quality > 0.6 and abs(slope) > 0.005:
+    #
+    # The ramp requirement is that the phase is actually a straight line, not
+    # that it is straighter than some other footage. A scrolling band is a
+    # physical process at a constant rate, so its phase is linear in row to
+    # within measurement noise and its R squared is essentially one. On the
+    # corpora a genuine recapture gives 1.00 and the highest innocent scene
+    # gives 0.79, and the gap between those is the physics rather than a chosen
+    # cut point.
+    if concentration > 4.0 and ramp_quality > 0.95 and abs(slope) > 0.005:
         return TestResult(
             "screen replay", "fail",
             f"row brightness carries a single temporal component {concentration:.1f} times the background whose phase "
@@ -372,6 +406,77 @@ def screen_replay(path: Path, width: int, height: int) -> TestResult:
         "screen replay", "pass",
         f"no scrolling band: temporal concentration {concentration:.1f}, phase ramp quality {ramp_quality:.2f}",
         None, measurements, mandatory=False,
+    )
+
+
+def burned_clock(path: Path, width: int, height: int, overlay: dict[str, Any] | None) -> TestResult:
+    """The recorder's own clock, read off the picture.
+
+    This is the test that closes the gap content continuity leaves. Frames
+    removed from a scene where nothing much happens are invisible to a motion
+    measurement, because the picture after the cut looks exactly like a picture
+    that would have followed anyway. The recorder wrote a time on every frame it
+    captured, so a jump in those times is a gap in the recording that no
+    re-encode can hide.
+
+    It runs only where the overlay position and format are known for the model
+    of recorder, which is a deployment record rather than something to guess at.
+    A reader turned loose on an unknown overlay would invent timestamps.
+    """
+    from fis.services.timestamp import continuity, read_overlay, reconcile
+
+    if not overlay:
+        return TestResult(
+            "burned clock",
+            "inconclusive",
+            "no overlay position is recorded for this source, so the recorder's own clock was not read. "
+            "without it, frames removed from a quiet scene are not detectable from the picture.",
+            None,
+            {},
+            mandatory=False,
+        )
+
+    seconds_per_frame = float(overlay.get("seconds_per_frame", 1.0 / 25.0))
+    readings = read_overlay(
+        path,
+        width,
+        height,
+        (int(overlay["y"]), int(overlay["x"])),
+        str(overlay.get("layout", "####-##-## ##:##:##")),
+        int(overlay.get("scale", 2)),
+    )
+    legible = [r for r in readings if r.epoch_ms is not None]
+    if len(legible) < 4:
+        return TestResult(
+            "burned clock", "inconclusive",
+            f"only {len(legible)} of {len(readings)} overlays were legible, which is too few to check continuity",
+            None, {"legible": len(legible), "frames": len(readings)}, mandatory=False,
+        )
+
+    gaps = continuity(readings, 1.0 / seconds_per_frame)
+    fit = reconcile(readings, 1.0 / seconds_per_frame, overlay.get("claimed_start_utc_ms"), gaps.get("gaps"))
+
+    measurements = {
+        "legible": len(legible),
+        "frames": len(readings),
+        "min_confidence": fit.get("min_confidence"),
+        "offset_s": fit.get("offset_s"),
+        "drift_s_per_day": fit.get("drift_s_per_day"),
+        "drift_resolvable_s_per_day": fit.get("drift_resolvable_s_per_day"),
+        "gaps": gaps.get("gaps", []),
+    }
+
+    if not gaps.get("continuous", True):
+        return TestResult(
+            "burned clock", "fail",
+            f"{gaps['detail']}. {fit.get('statement', '')}".strip(),
+            "ISO/IEC 27037", measurements,
+        )
+
+    return TestResult(
+        "burned clock", "pass",
+        f"{gaps['detail']}. {fit.get('statement', 'no true time was supplied to compare the clock against')}",
+        "ISO/IEC 27037", measurements,
     )
 
 
@@ -443,14 +548,20 @@ def verdict_of(tests: list[TestResult], signature_verdict: str) -> str:
     return "consistent"
 
 
-def run_battery(path: Path, width: int, height: int, claimed_capture_ms: int | None = None) -> dict[str, Any]:
+def run_battery(
+    path: Path,
+    width: int,
+    height: int,
+    claimed_capture_ms: int | None = None,
+    overlay: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     tests = [
         container_continuity(path),
         content_continuity(path, width, height),
+        burned_clock(path, width, height, overlay),
         screen_replay(path, width, height),
         metadata_consistency(path, claimed_capture_ms),
         recompression(path),
-        blocking_grid(path, width, height),
     ]
     return {
         "verdict": verdict_of(tests, "unverified"),

@@ -228,10 +228,24 @@ export async function buildForensics(
           'SELECT root, leaf_count FROM evidence_merkle WHERE sha256 = ?',
           [node.evidence_id],
         )
-        const media = get<{ width: number | null; height: number | null; captured_at: number | null }>(
-          'SELECT width, height, captured_at FROM evidence WHERE sha256 = ?',
+        const media = get<{ width: number | null; height: number | null; captured_at: number | null; fps: number | null }>(
+          'SELECT width, height, captured_at, fps FROM evidence WHERE sha256 = ?',
           [node.evidence_id],
         )
+
+        /* Where this recorder burns its clock, from its deployment record. The
+           tier will not guess at it: an invented timestamp on a piece of
+           evidence is worse than no timestamp. */
+        const overlayRow = get<{ overlay: string | null }>('SELECT overlay FROM sources WHERE source_id = ?', [
+          node.source_id,
+        ])
+        const overlay = overlayRow?.overlay
+          ? ({
+              ...(JSON.parse(overlayRow.overlay) as Record<string, unknown>),
+              seconds_per_frame: media?.fps ? 1 / media.fps : undefined,
+              claimed_start_utc_ms: media?.captured_at ?? undefined,
+            } as never)
+          : null
 
         /* The picture tests live in the forensic tier because they decode video
            and measure it. When the tier is not attached the console still
@@ -243,6 +257,7 @@ export async function buildForensics(
           height: media?.height ?? null,
           claimedCaptureMs: media?.captured_at ?? null,
           signatureVerdict: signature.verdict,
+          overlay,
         })
 
         const tests: AuthenticityReport['tests'] = [

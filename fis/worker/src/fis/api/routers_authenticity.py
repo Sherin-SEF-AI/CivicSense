@@ -30,6 +30,9 @@ class AuthenticityRequest(BaseModel):
     height: int | None = None
     claimed_capture_ms: int | None = None
     signature_verdict: str = "unverified"
+    # Where the recorder burns its clock, from the source's deployment record.
+    # Absent means the test says it could not run, never that it guessed.
+    overlay: dict[str, Any] | None = None
 
 
 def _locate(sha256: str) -> Path:
@@ -101,7 +104,7 @@ def authenticity(request: AuthenticityRequest) -> dict[str, Any]:
         }
 
     try:
-        report = run_battery(path, request.width, request.height, request.claimed_capture_ms)
+        report = run_battery(path, request.width, request.height, request.claimed_capture_ms, request.overlay)
     except Exception as error:  # noqa: BLE001
         # A decode failure is a finding about the object, not a server fault.
         return {
