@@ -23,6 +23,7 @@ from pydantic import BaseModel
 
 from fis.config import CONFIG
 from fis.db import pool as db
+from fis.api.routers_acquisition import router as acquisition_router
 from fis.api.routers_authenticity import router as authenticity_router
 from fis.api.routers_kinematics import router as kinematics_router
 from fis.api.routers_measure import router as measure_router
@@ -36,6 +37,7 @@ app.include_router(measure_router)
 app.include_router(authenticity_router)
 app.include_router(kinematics_router)
 app.include_router(timebase_router)
+app.include_router(acquisition_router)
 
 
 class Actor(BaseModel):

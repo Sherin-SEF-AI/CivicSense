@@ -28,7 +28,7 @@
     "fis:determinism": "python3 fis/ci/determinism.py",
     "fis:gate": "docker exec -i civicsense-fis-postgres-1 psql -U fis -d fis -f - < fis/ci/gate.sql",
     "verify:fis": "npm run fis:lint && npm run fis:build && npm run fis:determinism && npm run fis:acceptance && npm run e2e:fis",
-    "fis:acceptance": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python3 fis/ci/acceptance_metrology.py && OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python3 fis/ci/acceptance_authenticity.py && OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python3 fis/ci/acceptance_kinematics.py && OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python3 fis/ci/acceptance_timestamp.py && OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python3 fis/ci/acceptance_timebase.py",
+    "fis:acceptance": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python3 fis/ci/acceptance_metrology.py && OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python3 fis/ci/acceptance_authenticity.py && OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python3 fis/ci/acceptance_kinematics.py && OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python3 fis/ci/acceptance_timestamp.py && OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python3 fis/ci/acceptance_timebase.py && OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 python3 fis/ci/acceptance_acquisition.py",
     "e2e:fis": "playwright test -c playwright.fis.config.ts"
   },
   "dependencies": {

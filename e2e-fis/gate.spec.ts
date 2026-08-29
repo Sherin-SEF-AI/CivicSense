@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { tinyPng } from '../e2e/helpers'
 
 /**
@@ -339,5 +341,75 @@ test.describe('timebase', () => {
     }
     expect(stale.refused).toBe('timebase_sigma_exceeded')
     expect(stale.t_utc_ms).toBeNull()
+  })
+})
+
+test.describe('acquisition', () => {
+  test('a proprietary recorder export is walked, and a stream with no parameter sets is refused', async ({ request }) => {
+    const corpus = join('fis', 'corpora', 'out', 'dvr_format')
+    test.skip(!existsSync(join(corpus, 'dav_framed.bin')), 'the format corpus has not been generated')
+
+    /* Proprietary framing that a normal demuxer will not touch. */
+    const dav = await request.post('/api/v1/fis/acquire', {
+      multipart: { file: { name: 'export.dav', mimeType: 'application/octet-stream', buffer: readFileSync(join(corpus, 'dav_framed.bin')) } },
+    })
+    expect(dav.ok(), await dav.text()).toBe(true)
+    const opened = (await dav.json()) as {
+      opened: boolean
+      container: string
+      width: number
+      height: number
+      notes: string[]
+      original_sha256: string
+      normalised_sha256: string
+      decode_integrity?: { damaged_frames: number[] }
+    }
+    expect(opened.opened).toBe(true)
+    expect(opened.container).toBe('dahua-dav')
+    /* The geometry comes from the stream's own parameter set, not a guess. */
+    expect(opened.width).toBe(320)
+    expect(opened.height).toBe(240)
+    /* Both digests, so the relationship between original and master is checkable. */
+    expect(opened.original_sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(opened.normalised_sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(opened.original_sha256).not.toBe(opened.normalised_sha256)
+    expect(opened.notes.join(' ')).toContain('payload kept byte for byte')
+    expect(opened.decode_integrity!.damaged_frames).toEqual([])
+
+    /* And the refusal that matters most: nothing is repaired by substitution. */
+    const orphan = await request.post('/api/v1/fis/acquire', {
+      multipart: { file: { name: 'orphan.264', mimeType: 'application/octet-stream', buffer: readFileSync(join(corpus, 'missing_parameter_sets.bin')) } },
+    })
+    const refused = (await orphan.json()) as { opened: boolean; refused: string; detail: string }
+    expect(refused.opened).toBe(false)
+    expect(refused.refused).toBe('missing_parameter_sets')
+    expect(refused.detail).toContain('not evidence of anything')
+
+    /* Both attempts are on the record, including the one that failed. */
+    const admin = (await (await request.get('/api/v1/admin')).json()) as { audit: { action: string }[] }
+    expect(admin.audit.some((r) => r.action === 'acquisition.opened')).toBe(true)
+    expect(admin.audit.some((r) => r.action === 'acquisition.refused')).toBe(true)
+  })
+
+  test('a flipped bit opens but the integrity map marks what the decoder invented', async ({ request }) => {
+    const corpus = join('fis', 'corpora', 'out', 'dvr_format')
+    test.skip(!existsSync(join(corpus, 'bit_flip_in_slice.bin')), 'the format corpus has not been generated')
+
+    const response = await request.post('/api/v1/fis/acquire', {
+      multipart: { file: { name: 'rot.264', mimeType: 'application/octet-stream', buffer: readFileSync(join(corpus, 'bit_flip_in_slice.bin')) } },
+    })
+    const result = (await response.json()) as {
+      opened: boolean
+      decode_integrity: { damaged_frames: number[]; damaged_macroblocks: Record<string, number[][]>; detail: string }
+    }
+
+    /* The structure is intact, so acquisition succeeds. The damage is in the
+       coded data, and it is the integrity map's job to find it. */
+    expect(result.opened).toBe(true)
+    expect(result.decode_integrity.damaged_frames.length).toBeGreaterThan(0)
+    expect(Object.keys(result.decode_integrity.damaged_macroblocks).length).toBeGreaterThan(0)
+    /* Marked per macroblock, so a measurement can mask the invented regions
+       rather than discarding the whole frame. */
+    expect(result.decode_integrity.detail).toContain('must not be measured')
   })
 })
