@@ -94,7 +94,28 @@ class OpCtx:
 
 
 class OperatorFn(Protocol):
+    """Returns bytes, or bytes with the measurements it made getting there.
+
+    The second form matters for anything restorative. A deblur that reports how
+    much ringing it introduced lets an examiner see over restoration; one that
+    returns only a picture asks them to judge it by eye, which is exactly the
+    thing that cannot be done reliably. The digest covers the bytes alone, so
+    reporting measurements costs nothing in reproducibility.
+    """
+
     def __call__(self, ctx: OpCtx, inputs: dict[str, Any], params: BaseModel) -> Any: ...
+
+
+def split_result(result: Any) -> tuple[bytes, dict[str, Any]]:
+    """Normalises either return shape."""
+    if isinstance(result, tuple):
+        payload, measurements = result
+        if not isinstance(payload, (bytes, bytearray)):
+            raise TypeError("an operator returns bytes, optionally with a measurements mapping")
+        return bytes(payload), dict(measurements or {})
+    if isinstance(result, (bytes, bytearray)):
+        return bytes(result), {}
+    raise TypeError(f"an operator returned {type(result).__name__}, operators return bytes")
 
 
 @dataclass(frozen=True)

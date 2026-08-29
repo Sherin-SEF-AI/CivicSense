@@ -14,7 +14,7 @@ import json
 import sys
 from pathlib import Path
 
-from fis.operators.contract import OpCtx, OperatorError
+from fis.operators.contract import OpCtx, OperatorError, split_result
 from fis.operators.registry import get, load_all, registry_digest
 
 
@@ -42,12 +42,11 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"refused": error.reason, "detail": error.detail}), file=sys.stderr)
         return 2
 
-    if not isinstance(result, (bytes, bytearray)):
-        raise TypeError(f"{operator.key} returned {type(result).__name__}, operators return bytes")
+    payload, measurements = split_result(result)
 
-    digest = hashlib.sha256(result).hexdigest()
+    digest = hashlib.sha256(payload).hexdigest()
     if args.output:
-        args.output.write_bytes(result)
+        args.output.write_bytes(payload)
 
     print(
         json.dumps(
@@ -56,7 +55,8 @@ def main(argv: list[str] | None = None) -> int:
                 "class": operator.cls.value,
                 "registry_digest": registry_digest(),
                 "output_digest": digest,
-                "output_bytes": len(result),
+                "output_bytes": len(payload),
+                "measurements": measurements,
             },
             sort_keys=True,
         )

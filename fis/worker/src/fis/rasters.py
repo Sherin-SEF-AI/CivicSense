@@ -109,3 +109,39 @@ def quantise(array: np.ndarray, dtype: np.dtype) -> np.ndarray:
     info = np.iinfo(dtype)
     rounded = np.floor(np.asarray(array, dtype=np.float64) + 0.5)
     return np.clip(rounded, info.min, info.max).astype(dtype)
+
+
+STACK_MAGIC = b"FISSTK\x01"
+STACK_HEADER = 32
+
+
+def encode_stack(frames: list[Raster]) -> bytes:
+    """A run of frames as one object.
+
+    Separate from the single frame container rather than a flag inside it, so
+    that every digest already recorded against a FISRAW object stays what it
+    was. A format that changes meaning under existing digests is not a format
+    anyone can verify against.
+    """
+    if not frames:
+        raise ValueError("a stack holds at least one frame")
+
+    payloads = [encode(frame) for frame in frames]
+    sizes = {len(p) for p in payloads}
+    if len(sizes) != 1:
+        raise ValueError("every frame in a stack has the same geometry")
+
+    header = bytearray(STACK_HEADER)
+    header[0:7] = STACK_MAGIC
+    struct.pack_into("<II", header, 8, len(frames), len(payloads[0]))
+    return bytes(header) + b"".join(payloads)
+
+
+def decode_stack(payload: bytes) -> list[Raster]:
+    if len(payload) < STACK_HEADER or payload[0:7] != STACK_MAGIC:
+        # A single frame is a stack of one, so callers do not need two paths.
+        return [decode(payload)]
+    count, frame_bytes = struct.unpack_from("<II", payload, 8)
+    return [
+        decode(payload[STACK_HEADER + i * frame_bytes : STACK_HEADER + (i + 1) * frame_bytes]) for i in range(count)
+    ]
